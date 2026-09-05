@@ -66,6 +66,11 @@ export const config = {
     /*turbopackIgnore: true*/ process.cwd(),
     process.env.SCHEDULE_SEED_PDF ?? "data/seed/anul_i_semestrul_i-5.pdf",
   ),
+  /** Container-safe copy kept outside SCHEDULE_DATA_DIR so a mounted cache cannot hide it. */
+  imageSeedPdfPath: path.resolve(
+    /*turbopackIgnore: true*/ process.cwd(),
+    "seed/anul_i_semestrul_i-5.pdf",
+  ),
   seedPdfOriginalUrl:
     process.env.SCHEDULE_SEED_PDF_URL ??
     "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-5.pdf",

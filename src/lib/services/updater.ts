@@ -183,11 +183,18 @@ async function parseAndApply(bytes: Uint8Array, provenance: Provenance, current:
 
 /** Last resort for a cold start without network: a real, previously published FCIM PDF. */
 async function seedFromBundledPdf(): Promise<CheckResult | null> {
-  let bytes: Uint8Array;
-  try {
-    bytes = new Uint8Array(await readFile(config.seedPdfPath));
-  } catch {
-    log.warn("no seed PDF available", { path: config.seedPdfPath });
+  let bytes: Uint8Array | null = null;
+  const paths = [...new Set([config.seedPdfPath, config.imageSeedPdfPath])];
+  for (const filePath of paths) {
+    try {
+      bytes = new Uint8Array(await readFile(filePath));
+      break;
+    } catch {
+      // Try the immutable image copy next. The writable data directory may be a mounted volume.
+    }
+  }
+  if (!bytes) {
+    log.warn("no seed PDF available", { paths });
     return null;
   }
   const now = new Date().toISOString();

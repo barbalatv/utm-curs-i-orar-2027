@@ -17,15 +17,17 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=8000 \
     HOSTNAME=0.0.0.0 \
-    SCHEDULE_DATA_DIR=/app/data
+    SCHEDULE_DATA_DIR=/app/data \
+    SCHEDULE_SEED_PDF=/app/seed/anul_i_semestrul_i-5.pdf
 RUN groupadd --system app && useradd --system --gid app --home /app app
 COPY --from=builder --chown=app:app /app/.next/standalone ./
 COPY --from=builder --chown=app:app /app/.next/static ./.next/static
 COPY --from=builder --chown=app:app /app/public ./public
-COPY --from=builder --chown=app:app /app/data/seed ./data/seed
-RUN mkdir -p /app/data && chown -R app:app /app/data
+# Keep the bundled fallback outside the writable cache mount: deployment
+# platforms may replace /app/data with an initially empty volume.
+COPY --from=builder --chown=app:app /app/data/seed ./seed
+RUN mkdir -p /app/data && chown -R app:app /app/data /app/seed
 USER app
-VOLUME ["/app/data"]
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:8000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
