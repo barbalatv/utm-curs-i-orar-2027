@@ -108,3 +108,13 @@ data/seed/               bundled real FCIM PDF used only as last-resort bootstra
 Dockerfile, docker-compose.yml, Makefile, .env.example
 ```
 
+## License
+
+The code in this repository is released under the [MIT License](LICENSE).
+
+MIT covers **this project's own source code only**. It does not — and cannot — relicense the
+underlying timetable data: the official FCIM/UTM schedule PDFs, everything parsed out of them, and
+the real PDFs committed under `data/seed/` and `tests/fixtures/` remain the property of
+Universitatea Tehnică a Moldovei. They are redistributed here purely so the app can bootstrap
+without network access and so the parser's regression fixtures stay reproducible. If you fork this
+project, the MIT grant travels with the code; the schedule data does not.
