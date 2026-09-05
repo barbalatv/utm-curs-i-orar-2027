@@ -41,6 +41,8 @@ export interface StatusResponse {
     last_result: string;
     last_error: string | null;
     parity_note: string | null;
+    /** Monday of an odd week ("YYYY-MM-DD"); the client counts semester weeks from it. */
+    odd_week_anchor: string;
     refresh_interval_minutes: number;
   };
   server_time: string;

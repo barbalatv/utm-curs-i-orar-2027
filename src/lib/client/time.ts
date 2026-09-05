@@ -13,6 +13,77 @@ const WEEKDAY_TO_DAY: Record<string, DayName> = {
 
 export const DAY_SHORT: Record<DayName, string> = { Luni: "Lu", Marți: "Ma", Miercuri: "Mi", Joi: "Jo", Vineri: "Vi" };
 
+/**
+ * Monday of a week the university counts as odd. The autumn 2026/2027 semester opens on
+ * Monday 31 August 2026, which is week 1. Overridable per semester through
+ * SCHEDULE_ODD_WEEK_ANCHOR and served in /api/status.
+ */
+export const DEFAULT_ODD_WEEK_ANCHOR = "2026-08-31";
+
+export type WeekParityName = "odd" | "even";
+
+export interface WeekInfo {
+  /** 1-based week of the semester, counted from the anchor. */
+  number: number;
+  parity: WeekParityName;
+  /** Weekend: the week shown is the one starting tomorrow / on Monday, not the one just ending. */
+  lookingAhead: boolean;
+}
+
+const MS_PER_DAY = 86_400_000;
+const WEEKDAY_INDEX: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+
+/** Civil date in Chișinău as whole days since the epoch, plus Monday-based weekday index. */
+function chisinauDay(now: Date): { day: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return {
+    day: Date.UTC(Number(get("year")), Number(get("month")) - 1, Number(get("day"))) / MS_PER_DAY,
+    weekday: WEEKDAY_INDEX[get("weekday")] ?? 0,
+  };
+}
+
+/** "2026-08-31" as whole days since the epoch; NaN for anything unparsable. */
+function anchorDay(anchor: string): number {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(anchor.trim());
+  if (!match) return Number.NaN;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / MS_PER_DAY;
+}
+
+/**
+ * Which week of the semester is on show. Weeks run Monday→Sunday; on Saturday and Sunday
+ * the current week is over, so the schedule already shows the one that starts on Monday.
+ */
+export function currentWeek(anchor: string = DEFAULT_ODD_WEEK_ANCHOR, now = new Date()): WeekInfo {
+  const today = chisinauDay(now);
+  let start = anchorDay(anchor);
+  if (!Number.isFinite(start)) start = anchorDay(DEFAULT_ODD_WEEK_ANCHOR);
+  // Tolerate an anchor that is not a Monday by walking back to the Monday of its week.
+  const anchorMonday = start - modulo(start - 4, 7); // 1970-01-01 was a Thursday, index 3.
+  const thisMonday = today.day - today.weekday;
+  const lookingAhead = today.weekday >= 5;
+  const number = Math.round((thisMonday - anchorMonday) / 7) + 1 + (lookingAhead ? 1 : 0);
+  return { number, parity: modulo(number, 2) === 1 ? "odd" : "even", lookingAhead };
+}
+
+/** Remainder that stays non-negative for weeks before the anchor. */
+function modulo(value: number, by: number): number {
+  return ((value % by) + by) % by;
+}
+
+/** A lesson that runs on the other week – shown, but faded out. */
+export function isOtherWeek(lesson: Lesson, parity: WeekParityName): boolean {
+  return (lesson.week_parity === "odd" || lesson.week_parity === "even") && lesson.week_parity !== parity;
+}
+
+export const WEEK_PARITY_LABEL: Record<WeekParityName, string> = { odd: "impară", even: "pară" };
+
 export interface LocalNow {
   day: DayName | null;
   minutes: number;

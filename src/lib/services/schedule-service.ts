@@ -133,6 +133,7 @@ export async function buildStatus() {
       last_error: state.last_error,
       last_error_at: state.last_error_at,
       parity_note: state.parity_note,
+      odd_week_anchor: config.oddWeekAnchor,
       refresh_interval_minutes: config.refreshIntervalMs / 60_000,
     },
     server_time: new Date().toISOString(),

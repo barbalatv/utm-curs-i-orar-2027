@@ -11,6 +11,8 @@ interface LessonCardProps {
   /** Group whose schedule is being viewed – other groups sharing the lesson are listed. */
   focusGroup?: string | null;
   showTime?: boolean;
+  /** Runs on the opposite week: kept visible but faded, so this week reads at a glance. */
+  otherWeek?: boolean;
 }
 
 const STATUS_STYLE: Record<LessonStatus, string> = {
@@ -20,15 +22,15 @@ const STATUS_STYLE: Record<LessonStatus, string> = {
   upcoming: "",
 };
 
-export function LessonCard({ lesson, status = "upcoming", compact = false, focusGroup = null, showTime = false }: LessonCardProps) {
+export function LessonCard({ lesson, status = "upcoming", compact = false, focusGroup = null, showTime = false, otherWeek = false }: LessonCardProps) {
   const parity = PARITY_LABEL[lesson.week_parity];
   const sharedWith = lesson.groups.filter((group) => group !== focusGroup);
   const displayNotes = lesson.notes.filter((note) => !note.startsWith("Jumătatea") && !note.startsWith("Evidențiat"));
 
   return (
     <article
-      className={`relative rounded-xl border border-slate-200 bg-white p-3 text-sm transition ${STATUS_STYLE[status]} ${compact ? "p-2.5" : "p-3.5"}`}
-      aria-label={`${lesson.subject}, ${lesson.start_time}–${lesson.end_time}`}
+      className={`relative rounded-xl border border-slate-200 bg-white p-3 text-sm transition ${STATUS_STYLE[status]} ${compact ? "p-2.5" : "p-3.5"} ${otherWeek ? "opacity-45 grayscale" : ""}`}
+      aria-label={`${lesson.subject}, ${lesson.start_time}–${lesson.end_time}${otherWeek ? `, săptămâna ${PARITY_LABEL[lesson.week_parity] ?? ""}` : ""}`}
     >
       {status === "current" && (
         <span className="absolute -top-2 left-3 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Acum</span>

@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import type { DayName, Lesson, TimeSlot } from "@/lib/models";
+import { isOtherWeek, type WeekInfo } from "@/lib/client/time";
 import { LessonCard } from "./LessonCard";
+import { WeekBadge } from "./WeekBadge";
 
 interface AllGroupsViewProps {
   groups: string[];
@@ -10,10 +12,11 @@ interface AllGroupsViewProps {
   timeSlots: TimeSlot[];
   lessons: Lesson[];
   today: DayName | null;
+  week: WeekInfo;
 }
 
 /** Desktop-only matrix: groups as columns, time slots as rows, sticky headers, horizontal scroll. */
-export function AllGroupsView({ groups, days, timeSlots, lessons, today }: AllGroupsViewProps) {
+export function AllGroupsView({ groups, days, timeSlots, lessons, today, week }: AllGroupsViewProps) {
   const [day, setDay] = useState<DayName>(today && days.includes(today) ? today : days[0]);
 
   const cellIndex = useMemo(() => {
@@ -31,22 +34,31 @@ export function AllGroupsView({ groups, days, timeSlots, lessons, today }: AllGr
   }, [lessons, day]);
 
   return (
-    <section aria-label="Toate grupele" className="space-y-3">
-      <nav aria-label="Ziua" className="sticky top-[3.5rem] z-20 -mx-4 flex gap-1 overflow-x-auto bg-slate-50/95 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0">
-        {days.map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setDay(item)}
-            aria-pressed={item === day}
-            className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${item === day ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"}`}
-          >
-            {item}
-            {item === today && <span className="ml-1 text-[10px] uppercase opacity-70">azi</span>}
-          </button>
-        ))}
-      </nav>
-      <div className="overflow-auto rounded-xl border border-slate-200 bg-white" style={{ maxHeight: "calc(100vh - 12rem)" }}>
+    // Pinned under the app bar with its own stacking context: the sticky table headers
+    // scroll inside this box instead of riding up over the page chrome.
+    <section aria-label="Toate grupele" className="sticky top-14 z-0 space-y-2">
+      <div className="-mx-4 flex items-center gap-3 bg-slate-50 px-4 py-2 sm:mx-0 sm:px-0">
+        <nav aria-label="Ziua" className="flex gap-1 overflow-x-auto">
+          {days.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setDay(item)}
+              aria-pressed={item === day}
+              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition ${item === day ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"}`}
+            >
+              {item}
+              {item === today && <span className="ml-1 text-[10px] uppercase opacity-70">azi</span>}
+            </button>
+          ))}
+        </nav>
+        <span className="ml-auto shrink-0">
+          <WeekBadge week={week} compact />
+        </span>
+      </div>
+      {/* Short enough that the page never scrolls further than this section can stay pinned,
+          otherwise the day tabs slide up under the app bar at the bottom of the page. */}
+      <div className="max-h-[calc(100dvh-15rem)] overflow-auto rounded-xl border border-slate-200 bg-white md:max-h-[calc(100dvh-12rem)]">
         <table className="border-separate border-spacing-0 text-left text-xs">
           <thead>
             <tr>
@@ -74,7 +86,7 @@ export function AllGroupsView({ groups, days, timeSlots, lessons, today }: AllGr
                     <td key={group} className="border-b border-r border-slate-100 p-1 align-top">
                       <div className="space-y-1">
                         {cell.map((lesson) => (
-                          <LessonCard key={lesson.id} lesson={lesson} compact focusGroup={group} />
+                          <LessonCard key={lesson.id} lesson={lesson} compact focusGroup={group} otherWeek={isOtherWeek(lesson, week.parity)} />
                         ))}
                       </div>
                     </td>

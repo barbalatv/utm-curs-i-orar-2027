@@ -1,7 +1,7 @@
 "use client";
 
 import type { DayName, Lesson } from "@/lib/models";
-import { classifyLessons, dayBanner, type LocalNow } from "@/lib/client/time";
+import { classifyLessons, dayBanner, isOtherWeek, type LocalNow, type WeekParityName } from "@/lib/client/time";
 import { LessonCard } from "./LessonCard";
 
 interface DayTimelineProps {
@@ -9,11 +9,12 @@ interface DayTimelineProps {
   lessons: Lesson[];
   now: LocalNow;
   focusGroup: string | null;
+  activeParity: WeekParityName;
   showHeading?: boolean;
 }
 
 /** Vertical timeline for one day: time on the left, cards on the right, empty slots collapsed. */
-export function DayTimeline({ day, lessons, now, focusGroup, showHeading = true }: DayTimelineProps) {
+export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showHeading = true }: DayTimelineProps) {
   const isToday = now.day === day;
   const statuses = classifyLessons(lessons, now, day);
   const banner = dayBanner(lessons, now, day);
@@ -50,7 +51,13 @@ export function DayTimeline({ day, lessons, now, focusGroup, showHeading = true 
               </time>
               <div className="min-w-0 space-y-2">
                 {bucket.map((lesson) => (
-                  <LessonCard key={lesson.id} lesson={lesson} status={statuses.get(lesson.id) ?? "upcoming"} focusGroup={focusGroup} />
+                  <LessonCard
+                    key={lesson.id}
+                    lesson={lesson}
+                    status={statuses.get(lesson.id) ?? "upcoming"}
+                    focusGroup={focusGroup}
+                    otherWeek={isOtherWeek(lesson, activeParity)}
+                  />
                 ))}
               </div>
             </li>

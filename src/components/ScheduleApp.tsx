@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DayName, Lesson } from "@/lib/models";
 import type { ScheduleResponse, StatusResponse } from "@/lib/client/types";
-import { DAY_SHORT, formatDateTime, localNow } from "@/lib/client/time";
+import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
 import { AllGroupsView } from "./AllGroupsView";
 import { DayTimeline } from "./DayTimeline";
 import { LessonCard } from "./LessonCard";
+import { WeekBadge } from "./WeekBadge";
 
 type ViewMode = "today" | "week" | "all";
 const STORAGE_KEY = "fcim-schedule:group";
@@ -32,9 +33,13 @@ export function ScheduleApp() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [now, setNow] = useState(() => localNow());
+  const [tick, setTick] = useState(() => Date.now());
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(localNow()), 30_000);
+    const timer = setInterval(() => {
+      setNow(localNow());
+      setTick(Date.now());
+    }, 30_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -74,6 +79,10 @@ export function ScheduleApp() {
     if (value) window.localStorage.setItem(STORAGE_KEY, value);
     else window.localStorage.removeItem(STORAGE_KEY);
   };
+
+  // Which week the university is running. Recomputed on the clock tick so the page rolls
+  // over to the next week on its own, without waiting for the next status fetch.
+  const week = useMemo(() => currentWeek(status?.source.odd_week_anchor, new Date(tick)), [status, tick]);
 
   const days = useMemo(() => schedule?.days ?? [], [schedule]);
   const todayName = now.day && days.includes(now.day) ? now.day : null;
@@ -182,7 +191,7 @@ export function ScheduleApp() {
                         <p className="mb-1 text-xs text-slate-500">
                           {lesson.day} · {lesson.groups.length > 6 ? `${lesson.groups.length} grupe` : lesson.groups.join(", ")}
                         </p>
-                        <LessonCard lesson={lesson} showTime compact />
+                        <LessonCard lesson={lesson} showTime compact otherWeek={isOtherWeek(lesson, week.parity)} />
                       </li>
                     ))}
                   </ul>
@@ -191,7 +200,14 @@ export function ScheduleApp() {
             </section>
 
             {view === "all" ? (
-              <AllGroupsView groups={schedule.groups} days={days} timeSlots={schedule.time_slots} lessons={schedule.lessons} today={todayName} />
+              <AllGroupsView
+                groups={schedule.groups}
+                days={days}
+                timeSlots={schedule.time_slots}
+                lessons={schedule.lessons}
+                today={todayName}
+                week={week}
+              />
             ) : !group ? (
               <GroupPicker groups={schedule.groups} onPick={selectGroup} />
             ) : (
@@ -204,10 +220,11 @@ export function ScheduleApp() {
                 todayName={todayName}
                 onSelectDay={setSelectedDay}
                 now={now}
+                week={week}
               />
             )}
 
-            <StatusFooter status={status} />
+            <StatusFooter status={status} week={week} />
           </>
         )}
       </main>
@@ -272,9 +289,10 @@ interface GroupScheduleProps {
   todayName: DayName | null;
   onSelectDay: (day: DayName) => void;
   now: ReturnType<typeof localNow>;
+  week: WeekInfo;
 }
 
-function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now }: GroupScheduleProps) {
+function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now, week }: GroupScheduleProps) {
   const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day);
   return (
     <>
@@ -283,6 +301,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
         <p className="text-sm text-slate-500">
           {now.dateLabel} · {now.timeLabel} (Chișinău)
         </p>
+        <WeekBadge week={week} />
       </div>
 
       {view === "today" && (
@@ -303,7 +322,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
             ))}
           </nav>
           {!todayName && activeDay && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">Azi este weekend – afișăm ziua de {activeDay}.</p>}
-          {activeDay && <DayTimeline day={activeDay} lessons={lessonsFor(activeDay)} now={now} focusGroup={group} />}
+          {activeDay && <DayTimeline day={activeDay} lessons={lessonsFor(activeDay)} now={now} focusGroup={group} activeParity={week.parity} />}
         </>
       )}
 
@@ -311,7 +330,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
         <div className="grid gap-6 lg:grid-cols-2 2xl:grid-cols-5">
           {days.map((day) => (
             <div key={day} className={`rounded-2xl border p-4 ${day === todayName ? "border-blue-200 bg-blue-50/40" : "border-slate-200 bg-white"}`}>
-              <DayTimeline day={day} lessons={lessonsFor(day)} now={now} focusGroup={group} />
+              <DayTimeline day={day} lessons={lessonsFor(day)} now={now} focusGroup={group} activeParity={week.parity} />
             </div>
           ))}
         </div>
@@ -320,7 +339,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
   );
 }
 
-function StatusFooter({ status }: { status: StatusResponse | null }) {
+function StatusFooter({ status, week }: { status: StatusResponse | null; week: WeekInfo }) {
   if (!status?.schedule) return null;
   const { schedule, source } = status;
   return (
@@ -348,6 +367,9 @@ function StatusFooter({ status }: { status: StatusResponse | null }) {
       </div>
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Notă</p>
+        <p className="text-xs">
+          Acum: săptămâna {week.number} ({WEEK_PARITY_LABEL[week.parity]}).
+        </p>
         <p className="text-xs">{source.parity_note ?? "Săptămâna pară/impară: vezi anunțul de pe pagina oficială."}</p>
         {schedule.uncertain_lessons > 0 && <p className="text-xs">{schedule.uncertain_lessons} celule marcate ca incerte.</p>}
       </div>

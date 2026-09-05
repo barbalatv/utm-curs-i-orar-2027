@@ -3,6 +3,7 @@
  * defaults are safe for local development and the production container.
  */
 import path from "node:path";
+import { DEFAULT_ODD_WEEK_ANCHOR } from "@/lib/client/time";
 
 const MINUTE_MS = 60_000;
 const MEGABYTE = 1024 * 1024;
@@ -78,6 +79,8 @@ export const config = {
   seedPdfMirrorUrl:
     process.env.SCHEDULE_SEED_PDF_MIRROR_URL ??
     "https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/anul_i_semestrul_i-5.pdf",
+  /** Monday of a week the university counts as odd, as "YYYY-MM-DD". Set it per semester. */
+  oddWeekAnchor: process.env.SCHEDULE_ODD_WEEK_ANCHOR ?? DEFAULT_ODD_WEEK_ANCHOR,
   /** Course year served by this deployment ("Anul I"). */
   courseYear: envInt("SCHEDULE_COURSE_YEAR", 1),
   /** Token required for POST /api/admin/refresh. Empty = endpoint disabled. */

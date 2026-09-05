@@ -51,6 +51,14 @@ Raising `config.parserVersion` invalidates the cache: the next check re-download
 re-parses the PDF even when it is byte-identical, so a parser fix reaches users without
 waiting for the university to publish a new file.
 
+## Odd / even weeks
+
+Half-height cells in the PDF alternate weekly, so every lesson carries `week_parity`
+(`odd` / `even` / `both`). The UI counts semester weeks from `SCHEDULE_ODD_WEEK_ANCHOR`
+(the Monday of an odd week, `2026-08-31` for autumn 2026/2027) and fades out the lessons
+belonging to the other week. Weeks run Monday→Sunday; on Saturday and Sunday the teaching
+week is over, so the schedule already shows the week that starts on Monday.
+
 ## Architecture
 
 ```
