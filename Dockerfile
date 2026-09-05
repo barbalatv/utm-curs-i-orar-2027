@@ -21,6 +21,10 @@ ENV NODE_ENV=production \
     SCHEDULE_SEED_PDF=/app/seed/anul_i_semestrul_i-5.pdf
 RUN groupadd --system app && useradd --system --gid app --home /app app
 COPY --from=builder --chown=app:app /app/.next/standalone ./
+# Next's file tracer omits PDF.js' dynamically imported worker and optional
+# Node canvas bindings. Copy both packages so runtime PDF parsing is complete.
+COPY --from=builder --chown=app:app /app/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
+COPY --from=builder --chown=app:app /app/node_modules/@napi-rs ./node_modules/@napi-rs
 COPY --from=builder --chown=app:app /app/.next/static ./.next/static
 COPY --from=builder --chown=app:app /app/public ./public
 # Keep the bundled fallback outside the writable cache mount: deployment
