@@ -1,0 +1,356 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { DayName, Lesson } from "@/lib/models";
+import type { ScheduleResponse, StatusResponse } from "@/lib/client/types";
+import { DAY_SHORT, formatDateTime, localNow } from "@/lib/client/time";
+import { AllGroupsView } from "./AllGroupsView";
+import { DayTimeline } from "./DayTimeline";
+import { LessonCard } from "./LessonCard";
+
+type ViewMode = "today" | "week" | "all";
+const STORAGE_KEY = "fcim-schedule:group";
+const SEARCH_DEBOUNCE_MS = 250;
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `HTTP ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function ScheduleApp() {
+  const [schedule, setSchedule] = useState<ScheduleResponse | null>(null);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [group, setGroup] = useState<string | null>(null);
+  const [view, setView] = useState<ViewMode>("today");
+  const [selectedDay, setSelectedDay] = useState<DayName | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [now, setNow] = useState(() => localNow());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(localNow()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const load = useCallback(async () => {
+    try {
+      const [scheduleData, statusData] = await Promise.all([fetchJson<ScheduleResponse>("/api/schedule"), fetchJson<StatusResponse>("/api/status")]);
+      setSchedule(scheduleData);
+      setStatus(statusData);
+      setLoadError(null);
+      const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
+      setGroup((current) => {
+        const candidate = current ?? stored;
+        return candidate && scheduleData.groups.includes(candidate) ? candidate : null;
+      });
+    } catch (error) {
+      setLoadError((error as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initial fetch happens asynchronously (after the effect body) plus a periodic refresh.
+    const initial = setTimeout(() => void load(), 0);
+    const timer = setInterval(() => void load(), 10 * 60_000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(timer);
+    };
+  }, [load]);
+
+  const selectGroup = (value: string) => {
+    setGroup(value || null);
+    if (value) window.localStorage.setItem(STORAGE_KEY, value);
+    else window.localStorage.removeItem(STORAGE_KEY);
+  };
+
+  const days = useMemo(() => schedule?.days ?? [], [schedule]);
+  const todayName = now.day && days.includes(now.day) ? now.day : null;
+  const activeDay: DayName | null = selectedDay ?? todayName ?? days[0] ?? null;
+
+  const groupLessons = useMemo(() => (schedule && group ? schedule.lessons.filter((lesson) => lesson.groups.includes(group)) : []), [schedule, group]);
+
+  const searchResults = useMemo(() => {
+    if (!schedule || debouncedSearch.length < 2) return [];
+    const needle = fold(debouncedSearch);
+    return schedule.lessons
+      .filter((lesson) => [lesson.subject, lesson.teacher, lesson.room, lesson.groups.join(" ")].map(fold).join(" ").includes(needle))
+      .sort((a, b) => days.indexOf(a.day) - days.indexOf(b.day) || a.start_time.localeCompare(b.start_time))
+      .slice(0, 60);
+  }, [schedule, debouncedSearch, days]);
+
+  const sourceLabel = status?.schedule?.source_kind;
+  const staleNotice = status && status.source.last_result === "error" && status.schedule ? `Nu s-a putut verifica ultima versiune. Este afișat orarul actualizat la ${formatDateTime(status.schedule.downloaded_at)}.` : null;
+  const seedNotice = sourceLabel === "seed" ? "Sursa oficială nu a fost accesibilă la pornire; este afișată ultima versiune publicată de FCIM inclusă în aplicație. Se reîncearcă automat." : sourceLabel === "wayback" ? "Pagina FCIM nu a răspuns direct; PDF-ul a fost preluat din arhiva publică a paginii oficiale." : null;
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4">
+          <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-sm font-bold text-white" aria-hidden="true">
+              I
+            </span>
+            <span className="hidden sm:inline">Orar FCIM · Anul I</span>
+            <span className="sm:hidden">Orar FCIM</span>
+          </Link>
+          <label className="ml-auto flex items-center gap-2 text-sm">
+            <span className="sr-only">Grupa</span>
+            <select
+              value={group ?? ""}
+              onChange={(event) => selectGroup(event.target.value)}
+              className="h-9 min-w-[7.5rem] rounded-lg border border-slate-300 bg-white px-2 text-sm font-medium shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            >
+              <option value="">Alege grupa…</option>
+              {schedule?.groups.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <nav aria-label="Mod de afișare" className="hidden items-center rounded-lg bg-slate-100 p-0.5 text-sm md:flex">
+            {(["today", "week", "all"] as ViewMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setView(mode)}
+                aria-pressed={view === mode}
+                className={`rounded-md px-3 py-1.5 font-medium transition ${view === mode ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+              >
+                {mode === "today" ? "Azi" : mode === "week" ? "Săptămâna" : "Toate grupele"}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 pb-24 pt-4 md:pb-10">
+        {loadError && !schedule && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-semibold">Orarul nu este disponibil momentan.</p>
+            <p className="mt-1">{loadError === "Schedule not available yet" ? "Se descarcă și se procesează PDF-ul oficial FCIM. Pagina se va actualiza automat." : "Încercăm din nou în câteva secunde."}</p>
+          </div>
+        )}
+        {!schedule && !loadError && (
+          <div className="animate-pulse space-y-3" aria-live="polite">
+            <div className="h-6 w-48 rounded bg-slate-200" />
+            <div className="h-24 rounded-xl bg-slate-200" />
+            <div className="h-24 rounded-xl bg-slate-200" />
+          </div>
+        )}
+
+        {schedule && (
+          <>
+            {(staleNotice || seedNotice) && (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{staleNotice ?? seedNotice}</div>
+            )}
+
+            <section aria-label="Căutare" className="mb-4">
+              <div className="relative">
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Caută profesor, disciplină, sală sau grupă…"
+                  className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  aria-label="Căutare"
+                />
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true">
+                  ⌕
+                </span>
+              </div>
+              {debouncedSearch.length >= 2 && (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                    {searchResults.length ? `${searchResults.length} rezultate pentru „${debouncedSearch}”` : `Nimic găsit pentru „${debouncedSearch}”`}
+                  </p>
+                  <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {searchResults.map((lesson) => (
+                      <li key={lesson.id}>
+                        <p className="mb-1 text-xs text-slate-500">
+                          {lesson.day} · {lesson.groups.length > 6 ? `${lesson.groups.length} grupe` : lesson.groups.join(", ")}
+                        </p>
+                        <LessonCard lesson={lesson} showTime compact />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+
+            {view === "all" ? (
+              <AllGroupsView groups={schedule.groups} days={days} timeSlots={schedule.time_slots} lessons={schedule.lessons} today={todayName} />
+            ) : !group ? (
+              <GroupPicker groups={schedule.groups} onPick={selectGroup} />
+            ) : (
+              <GroupSchedule
+                group={group}
+                days={days}
+                lessons={groupLessons}
+                view={view}
+                activeDay={activeDay}
+                todayName={todayName}
+                onSelectDay={setSelectedDay}
+                now={now}
+              />
+            )}
+
+            <StatusFooter status={status} />
+          </>
+        )}
+      </main>
+
+      <nav aria-label="Mod de afișare" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-slate-200 bg-white/95 text-xs backdrop-blur md:hidden">
+        {(["today", "week", "all"] as ViewMode[]).map((mode) => (
+          <button key={mode} type="button" onClick={() => setView(mode)} aria-pressed={view === mode} className={`py-3 font-medium ${view === mode ? "text-blue-700" : "text-slate-500"}`}>
+            {mode === "today" ? "Azi" : mode === "week" ? "Săptămâna" : "Toate"}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+function fold(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function GroupPicker({ groups, onPick }: { groups: string[]; onPick: (group: string) => void }) {
+  const byProgram = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const name of groups) {
+      const program = name.split("-")[0];
+      map.set(program, [...(map.get(program) ?? []), name]);
+    }
+    return [...map.entries()];
+  }, [groups]);
+  return (
+    <section aria-labelledby="pick-title" className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
+      <h1 id="pick-title" className="text-xl font-semibold tracking-tight sm:text-2xl">
+        Alege grupa ta
+      </h1>
+      <p className="mt-1 text-sm text-slate-600">Grupa se salvează pe acest dispozitiv – data viitoare orarul se deschide direct.</p>
+      <div className="mt-6 space-y-5">
+        {byProgram.map(([program, names]) => (
+          <div key={program}>
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{program}</h2>
+            <div className="flex flex-wrap gap-2">
+              {names.map((name) => (
+                <button key={name} type="button" onClick={() => onPick(name)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700">
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+interface GroupScheduleProps {
+  group: string;
+  days: DayName[];
+  lessons: Lesson[];
+  view: ViewMode;
+  activeDay: DayName | null;
+  todayName: DayName | null;
+  onSelectDay: (day: DayName) => void;
+  now: ReturnType<typeof localNow>;
+}
+
+function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now }: GroupScheduleProps) {
+  const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day);
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">{group}</h1>
+        <p className="text-sm text-slate-500">
+          {now.dateLabel} · {now.timeLabel} (Chișinău)
+        </p>
+      </div>
+
+      {view === "today" && (
+        <>
+          <nav aria-label="Ziua" className="sticky top-14 z-20 -mx-4 mb-4 flex gap-1 overflow-x-auto bg-slate-50/95 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0">
+            {days.map((day) => (
+              <button
+                key={day}
+                type="button"
+                onClick={() => onSelectDay(day)}
+                aria-pressed={day === activeDay}
+                className={`min-w-[3.2rem] flex-1 rounded-lg px-2 py-2 text-sm font-medium transition sm:flex-none sm:px-4 ${day === activeDay ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"}`}
+              >
+                <span className="sm:hidden">{DAY_SHORT[day]}</span>
+                <span className="hidden sm:inline">{day}</span>
+                {day === todayName && <span className={`ml-1 text-[10px] uppercase ${day === activeDay ? "opacity-80" : "text-blue-600"}`}>azi</span>}
+              </button>
+            ))}
+          </nav>
+          {!todayName && activeDay && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">Azi este weekend – afișăm ziua de {activeDay}.</p>}
+          {activeDay && <DayTimeline day={activeDay} lessons={lessonsFor(activeDay)} now={now} focusGroup={group} />}
+        </>
+      )}
+
+      {view === "week" && (
+        <div className="grid gap-6 lg:grid-cols-2 2xl:grid-cols-5">
+          {days.map((day) => (
+            <div key={day} className={`rounded-2xl border p-4 ${day === todayName ? "border-blue-200 bg-blue-50/40" : "border-slate-200 bg-white"}`}>
+              <DayTimeline day={day} lessons={lessonsFor(day)} now={now} focusGroup={group} />
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function StatusFooter({ status }: { status: StatusResponse | null }) {
+  if (!status?.schedule) return null;
+  const { schedule, source } = status;
+  return (
+    <footer className="mt-10 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Actualizat</p>
+        <p className="font-medium text-slate-900">{formatDateTime(schedule.downloaded_at)}</p>
+        <p className="text-xs">Verificat: {formatDateTime(source.last_check_at)} · la fiecare {source.refresh_interval_minutes} min</p>
+      </div>
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Sursa</p>
+        <p className="font-medium text-slate-900">FCIM UTM</p>
+        <p className="text-xs">
+          {schedule.academic_year ?? "—"} · {schedule.semester ?? "—"} · {schedule.groups} grupe · {schedule.lessons} lecții
+        </p>
+      </div>
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Documente</p>
+        <a href={schedule.source_pdf_url} target="_blank" rel="noopener noreferrer" className="block font-medium text-blue-700 hover:underline">
+          PDF oficial ↗
+        </a>
+        <a href={source.page_url} target="_blank" rel="noopener noreferrer" className="block text-xs text-blue-700 hover:underline">
+          Pagina oficială a orarului ↗
+        </a>
+      </div>
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Notă</p>
+        <p className="text-xs">{source.parity_note ?? "Săptămâna pară/impară: vezi anunțul de pe pagina oficială."}</p>
+        {schedule.uncertain_lessons > 0 && <p className="text-xs">{schedule.uncertain_lessons} celule marcate ca incerte.</p>}
+      </div>
+    </footer>
+  );
+}

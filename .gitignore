@@ -1,0 +1,21 @@
+
+# dependencies and build output
+node_modules/
+.next/
+dist/
+build/
+
+# local environment and logs
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+
+# runtime cache and temporary artifacts
+data/*.json
+data/*.tmp
+debug/
+.test-data/
+tmp/
+out/

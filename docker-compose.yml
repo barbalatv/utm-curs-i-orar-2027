@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    image: fcim-schedule
+    ports:
+      - "8000:8000"
+    environment:
+      SCHEDULE_REFRESH_MINUTES: ${SCHEDULE_REFRESH_MINUTES:-30}
+      SCHEDULE_ADMIN_TOKEN: ${SCHEDULE_ADMIN_TOKEN:-}
+      # Optional: enable version history / recovery in PostgreSQL.
+      DATABASE_URL: ${DATABASE_URL:-}
+    volumes:
+      - schedule-data:/app/data
+    restart: unless-stopped
+
+  # Optional history store. Remove this service (and DATABASE_URL) for a single-container deployment.
+  db:
+    image: postgres:16-alpine
+    profiles: ["with-db"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app_db
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+volumes:
+  schedule-data:
+  pg-data:
