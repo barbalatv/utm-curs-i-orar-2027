@@ -77,6 +77,11 @@ function modulo(value: number, by: number): number {
   return ((value % by) + by) % by;
 }
 
+/** The lessons that actually run on the week being shown; the faded ones do not count. */
+export function lessonsThisWeek(lessons: Lesson[], parity: WeekParityName): Lesson[] {
+  return lessons.filter((lesson) => !isOtherWeek(lesson, parity));
+}
+
 /** A lesson that runs on the other week – shown, but faded out. */
 export function isOtherWeek(lesson: Lesson, parity: WeekParityName): boolean {
   return (lesson.week_parity === "odd" || lesson.week_parity === "even") && lesson.week_parity !== parity;

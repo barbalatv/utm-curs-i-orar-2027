@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentWeek, DEFAULT_ODD_WEEK_ANCHOR, isOtherWeek } from "@/lib/client/time";
+import { currentWeek, DEFAULT_ODD_WEEK_ANCHOR, isOtherWeek, lessonsThisWeek } from "@/lib/client/time";
 import type { Lesson } from "@/lib/models";
 
 /** Noon in Chișinău, so the civil date never depends on the UTC offset of the day. */
@@ -46,6 +46,13 @@ describe("test_week_parity", () => {
     expect(currentWeek("not-a-date", noon("2026-09-09"))).toEqual(expected);
     // An anchor given mid-week still identifies its Monday.
     expect(currentWeek("2026-09-02", noon("2026-09-09"))).toMatchObject({ number: 2, parity: "even" });
+  });
+
+  it("counts only the lessons running on the week shown", () => {
+    const day = [lesson("both"), lesson("odd"), lesson("even"), lesson("odd")];
+    expect(lessonsThisWeek(day, "odd")).toHaveLength(3);
+    expect(lessonsThisWeek(day, "even")).toHaveLength(2);
+    expect(lessonsThisWeek([lesson("odd")], "even")).toHaveLength(0);
   });
 
   it("fades only the lessons of the opposite week", () => {

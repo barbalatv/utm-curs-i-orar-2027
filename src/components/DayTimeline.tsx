@@ -1,7 +1,7 @@
 "use client";
 
 import type { DayName, Lesson } from "@/lib/models";
-import { classifyLessons, dayBanner, isOtherWeek, type LocalNow, type WeekParityName } from "@/lib/client/time";
+import { classifyLessons, dayBanner, isOtherWeek, lessonsThisWeek, type LocalNow, type WeekParityName } from "@/lib/client/time";
 import { LessonCard } from "./LessonCard";
 
 interface DayTimelineProps {
@@ -16,8 +16,11 @@ interface DayTimelineProps {
 /** Vertical timeline for one day: time on the left, cards on the right, empty slots collapsed. */
 export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showHeading = true }: DayTimelineProps) {
   const isToday = now.day === day;
-  const statuses = classifyLessons(lessons, now, day);
-  const banner = dayBanner(lessons, now, day);
+  // Everything that counts – the lesson total, "Acum"/"Urmează" and the banner – follows
+  // the week on show. A faded lesson is not running, so it is none of those.
+  const running = lessonsThisWeek(lessons, activeParity);
+  const statuses = classifyLessons(running, now, day);
+  const banner = dayBanner(running, now, day);
   const byStart = new Map<string, Lesson[]>();
   for (const lesson of lessons) {
     const bucket = byStart.get(lesson.start_time) ?? [];
@@ -34,7 +37,7 @@ export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showH
             {day}
           </h3>
           {isToday && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-700">Azi</span>}
-          <span className="ml-auto text-xs text-slate-500">{lessons.length ? `${lessons.length} lecții` : "liber"}</span>
+          <span className="ml-auto text-xs text-slate-500">{lessons.length ? `${running.length} lecții` : "liber"}</span>
         </header>
       )}
       {banner && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">{banner}</p>}

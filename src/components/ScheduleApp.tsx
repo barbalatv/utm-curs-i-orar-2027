@@ -343,7 +343,9 @@ function StatusFooter({ status, week }: { status: StatusResponse | null; week: W
   if (!status?.schedule) return null;
   const { schedule, source } = status;
   return (
-    <footer className="mt-10 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+    // Above the pinned "Toate grupele" matrix, which is painted lower than its place in
+    // flow and would otherwise cover this.
+    <footer className="relative z-10 mt-10 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Actualizat</p>
         <p className="font-medium text-slate-900">{formatDateTime(schedule.downloaded_at)}</p>
