@@ -1,9 +1,11 @@
 # Orar FCIM UTM · Anul I
 
-Production-ready timetable web app for first-year FCIM UTM students. It discovers the current
-"Anul I" PDF on the official page, downloads it, reconstructs the table **geometrically** (not by
-regex over linear text), normalises the data, serves a JSON API and a mobile-first UI, and keeps
-itself up to date. The last known-good schedule is never lost because of a network or parsing error.
+Production-ready timetable web app for first-year FCIM UTM students, built for a **single-instance**
+deployment — one container, one data volume (see [Known limitations](#known-limitations)). It
+discovers the current "Anul I" PDF on the official page, downloads it, reconstructs the table
+**geometrically** (not by regex over linear text), normalises the data, serves a JSON API and a
+mobile-first UI, and keeps itself up to date. The last known-good schedule is never lost because of
+a network or parsing error.
 
 - Source of truth: <https://fcim.utm.md/procesul-de-studii/orar/> → section
   *"Ciclul I, Licență - învățământ cu frecvență"* → row *"Orar Semestrul …"* → link **Anul I**.
@@ -60,21 +62,32 @@ Debugging and stuff can be found [here](docs/debugging.md ).
   remains the last resort; the UI identifies stale or fallback data.
 - **Lesson type** is only set when the PDF says so (`c.`, `lab`, `sem.`, `Ed. fizică`, `L. …`).
   Most single-group cells in the spring PDF carry no marker → `unknown` (shown as "Tip nespecificat").
-- **Week parity** is derived from the half-cell convention (upper = odd, lower = even). The current
-  calendar week's parity is *not* computed – the semester start date is not in the PDF; the
-  page's note ("Prima săptămână … este pară/impară") is shown instead.
+- **Week parity.** Each lesson's parity comes from the half-cell convention (upper = odd, lower =
+  even). Which parity the *current* week has is computed: the app counts Monday→Sunday weeks from
+  `SCHEDULE_ODD_WEEK_ANCHOR` (default `2026-08-31`) and fades out the lessons of the other week.
+  That anchor cannot be derived from the PDF – the semester start date is not in it – so it has to
+  be set once per semester; the status footer prints the computed week beside the official page's
+  own note ("Prima săptămână … este pară/impară") so the two can be cross-checked.
 - Free-form notes inside the table (e.g. a lone "SO" or "MCE MCE MCE" banner) are kept as
   `uncertain` lessons with their raw text rather than dropped or guessed.
 - Subject abbreviations (MDPS, SDA, AM…) are shown as written; there is no expansion dictionary.
 - OCR fallback is not implemented – the official PDFs have a text layer.
+- **Single instance.** The refresh scheduler and the in-flight lock that keeps two checks from
+  overlapping both live in the process, and the cache is a pair of files in `SCHEDULE_DATA_DIR`.
+  Run one replica: two would each download and re-parse the PDF on their own timer, and on a shared
+  volume the atomic rename simply decides who wins. There is no distributed lock or leader
+  election – for one faculty's timetable it would cost more than it buys. Scale reads with a cache
+  or CDN in front of the app rather than with more replicas.
 
 ## Deployment
 
 1. Build the image (`docker build -t fcim-schedule .`) or run `npm run build && npm start`.
 2. Mount a volume at `/app/data` (Docker) so the cache survives restarts.
-3. Optionally set `DATABASE_URL` and run `npx drizzle-kit push` once to create `schedule_versions`.
-4. Set `SCHEDULE_ADMIN_TOKEN` to enable `POST /api/admin/refresh`.
-5. Put the container behind HTTPS; `/api/health` is the health check.
+3. Set `SCHEDULE_ODD_WEEK_ANCHOR` to the Monday the university counts as week 1 of the semester —
+   the week badge and the fading of the other week's lessons are counted from it.
+4. Optionally set `DATABASE_URL` and run `npx drizzle-kit push` once to create `schedule_versions`.
+5. Set `SCHEDULE_ADMIN_TOKEN` to enable `POST /api/admin/refresh`.
+6. Put the container behind HTTPS; `/api/health` is the health check. Run a single replica.
 
 ## Project structure
 
@@ -91,5 +104,7 @@ src/instrumentation.ts   starts the scheduler with the server
 scripts/parser-cli.ts    parse / stats / debug CLI
 tests/                   vitest suites + real FCIM fixtures (PDFs, page HTML, regression stats)
 data/seed/               bundled real FCIM PDF used only as last-resort bootstrap
+.github/workflows/ci.yml typecheck · lint · test · build on every push and PR to main
 Dockerfile, docker-compose.yml, Makefile, .env.example
 ```
+
