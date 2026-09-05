@@ -6,13 +6,15 @@
  */
 import { backgroundAt, cellKey, centerOf, enclosingCell, overlap1d, type CellBounds, type Grid } from "./geometry";
 import type { TextItem } from "./pdf-extract";
-import type { SlotRow, TableLayout } from "./table-detector";
+import { GROUP_CODE_RE, type SlotRow, type TableLayout } from "./table-detector";
 import type { DayName } from "@/lib/models";
 
 /** Items whose vertical centres differ by less than this belong to the same visual line. */
 const SAME_LINE_TOLERANCE_PT = 1.0;
 /** A column/row counts as covered when at least this share of it lies under the cell. */
 const MIN_COVERAGE_RATIO = 0.5;
+/** A mapped cell must lie this much inside the slot rows it covers. */
+const MIN_INSIDE_ROWS_RATIO = 0.6;
 
 export interface TableCell {
   key: string;
@@ -38,8 +40,9 @@ export function buildCells(texts: TextItem[], grid: Grid, layout: TableLayout, p
   for (const item of texts) {
     const { cx, cy } = centerOf(item);
     if (!isInsideTable(cx, cy, layout)) continue;
-    const bounds = enclosingCell(grid, cx, cy);
-    if (!bounds) continue;
+    const found = enclosingCell(grid, cx, cy);
+    if (!found) continue;
+    const bounds = clampToTable(found, layout);
     const key = cellKey(bounds);
     const bucket = byCell.get(key) ?? { bounds, items: [] };
     bucket.items.push(item);
@@ -62,12 +65,49 @@ export function buildCells(texts: TextItem[], grid: Grid, layout: TableLayout, p
       rows,
       position: rowPosition(bucket.bounds, rows),
     };
-    if (groups.length === 0 || rows.length === 0) orphans.push(cell);
-    else cells.push(cell);
+    const mapped = groups.length > 0 && rows.length > 0 && sitsInsideRows(bucket.bounds, rows) && !isHeaderRemnant(cell);
+    if (mapped) cells.push(cell);
+    else orphans.push(cell);
   }
 
   cells.sort((a, b) => a.bounds.y0 - b.bounds.y0 || a.bounds.x0 - b.bounds.x0);
   return { cells, orphans };
+}
+
+/**
+ * Text sitting exactly on a ruling gets no border between it and the next band, so its
+ * "cell" swallows the header row. Such a box reaches far outside the slot rows it was
+ * mapped to and is not a lesson.
+ */
+function sitsInsideRows(bounds: CellBounds, rows: SlotRow[]): boolean {
+  const height = bounds.y1 - bounds.y0;
+  if (height <= 0) return false;
+  const covered = overlap1d(bounds.y0, bounds.y1, rows[0].y0, rows[rows.length - 1].y1);
+  return covered >= height * MIN_INSIDE_ROWS_RATIO;
+}
+
+/**
+ * A cell holding nothing but a group code is a leftover of the header row – group
+ * codes label columns, they are never the content of a lesson.
+ */
+function isHeaderRemnant(cell: TableCell): boolean {
+  return cell.lines.length === 1 && GROUP_CODE_RE.test(cell.lines[0].trim());
+}
+
+/**
+ * Nothing in the table body reaches past the group columns or the day blocks. Where a
+ * border is missing the enclosing box latches onto the next ruling outside the table
+ * (the repeated time column, the outer frame); clamping keeps every line of one visual
+ * cell on the same key so the cell is not split in two.
+ */
+function clampToTable(bounds: CellBounds, layout: TableLayout): CellBounds {
+  const { x0, x1, y0, y1 } = layout.bounds;
+  return {
+    x0: Math.max(bounds.x0, x0),
+    x1: Math.min(bounds.x1, x1),
+    y0: Math.max(bounds.y0, y0),
+    y1: Math.min(bounds.y1, y1),
+  };
 }
 
 function isInsideTable(cx: number, cy: number, layout: TableLayout): boolean {
@@ -92,12 +132,28 @@ export function groupsCoveredBy(bounds: CellBounds, layout: TableLayout): string
  */
 export function rowsCoveredBy(bounds: CellBounds, rows: SlotRow[]): SlotRow[] {
   const cellHeight = bounds.y1 - bounds.y0;
-  return rows
+  const covered = rows
     .filter((row) => {
       const reference = Math.min(row.y1 - row.y0, cellHeight);
       return overlap1d(bounds.y0, bounds.y1, row.y0, row.y1) >= reference * MIN_COVERAGE_RATIO;
     })
     .sort((a, b) => a.y0 - b.y0);
+  return keepDominantDay(bounds, covered);
+}
+
+/**
+ * No lesson runs from one day into the next. When a box reaches over a day
+ * boundary – text drawn across the ruling – it belongs to the day it covers most.
+ */
+function keepDominantDay(bounds: CellBounds, rows: SlotRow[]): SlotRow[] {
+  const perDay = new Map<DayName, number>();
+  for (const row of rows) {
+    const shared = overlap1d(bounds.y0, bounds.y1, row.y0, row.y1);
+    perDay.set(row.day, (perDay.get(row.day) ?? 0) + shared);
+  }
+  if (perDay.size <= 1) return rows;
+  const [dominant] = [...perDay.entries()].sort((a, b) => b[1] - a[1])[0];
+  return rows.filter((row) => row.day === dominant);
 }
 
 /** A cell shorter than this share of its slot row is a top/bottom half (odd/even week). */

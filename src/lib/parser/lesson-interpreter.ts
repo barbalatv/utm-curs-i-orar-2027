@@ -9,14 +9,29 @@ import type { Lesson, LessonType, WeekParity } from "@/lib/models";
 import type { TableCell } from "./cell-builder";
 import { normalizeRoom, normalizeSubgroup, normalizeSubject, normalizeTeacher, cleanText } from "./normalizer";
 
-/** "606", "3-3", "5-114", "D01-03", "D-01-02", "D 01,03" – but not "A1" (language level). */
-const ROOM_RE = /^(?:[A-Z]\s?-?\s?\d{2}(?:\s?[-,]\s?\d{2})?|\d\s?-\s?\d{1,3}[a-z]?|\d{3}[a-z]?)$/i;
+/** One room: "606", "606a", "3-3", "5-114", "D01", "D-01", "A03" – but not "A1" (language level). */
+const ROOM_ATOM = String.raw`(?:[A-Z]\s?-?\s?\d{2,3}[a-z]?|\d\s?-\s?\d{1,3}[a-z]?|\d{3}[a-z]?)`;
+/** Follow-up room in a list, which may drop the block letter: "D02/04", "110/112". */
+const ROOM_TAIL = String.raw`(?:${ROOM_ATOM}|\d{2}[a-z]?)`;
+/**
+ * One room, or the list of rooms a split lesson runs in. Labs shared by two
+ * subgroups are written "D02/04", "D-01 / D-03", "110/112" or "301-304" – one
+ * lesson in two rooms, not two lessons.
+ */
+const ROOM_RE = new RegExp(`^${ROOM_ATOM}(?:\\s*[-/,]\\s*${ROOM_TAIL})*$`, "i");
+/** Auditoriums carry their patron's name after the number: "3-3 Amdaris", "Aula 6-2 Henri Coandă". */
+const VENUE_WORD = String.raw`[A-ZĂÂÎȘȚ][A-Za-zĂÂÎȘȚăâîșț0-9.-]*`;
+const VENUE_ROOM_RE = new RegExp(`^(?:(?:aula|sala|sală)\\s+)?${ROOM_ATOM}(?:\\s+${VENUE_WORD})+$`, "i");
+/** A venue named instead of numbered: "Sala sportivă", "Terenul sportiv". */
+const NAMED_VENUE_RE = /^(?:sal[aă]|aul[aă]|teren(?:ul)?|stadion(?:ul)?)\s+[A-Za-zĂÂÎȘȚăâîșț][A-Za-zĂÂÎȘȚăâîșț\s.-]*$/i;
 const NAME_WORD = "[A-ZĂÂÎȘȚ][a-zăâîșț]+(?:-[A-Za-zĂÂÎȘȚăâîșț][a-zăâîșț]+)?";
 const TEACHER_RE = new RegExp(`^${NAME_WORD}(?: ${NAME_WORD})?\\s+(?:[A-ZĂÂÎȘȚ][a-zăâîșț]{0,2}\\.?|[a-z]\\.)$`);
 const SUBGROUP_RE = /(?:\b0\s*[.,]\s*5\s*[,.]?\s*gr\.?|\b05\s*,\s*gr\.?)/i;
 const LONE_MARKER_RE = /^(c|lab|sem|pr|proiect)\.?$/i;
-const PHYS_ED_RE = /^ed\.?\s*fizic[aă](?![a-zăâîșț])/i;
+const PHYS_ED_RE = /^(?:ed\.?|educa[țt]i[ae])\s*fizic[aă](?![a-zăâîșț])/i;
 const LANGUAGE_RE = /^(?:l\.?\s*|limba\s+|limbă\s+)?(?:engleză|engleza|română|romana|rom\.?|străină|straina|franceză|germană)(?![a-zăâîșț])/i;
+/** Slots the timetable fills with unsupervised work – no teacher or room is expected. */
+const SELF_STUDY_RE = /^(?:activit[ăa][țt]i|lucru\s+individual|studiu\s+individual)/i;
 
 const TYPE_PREFIXES: { pattern: RegExp; type: LessonType }[] = [
   { pattern: /^c\.\s*/i, type: "lecture" },
@@ -33,14 +48,22 @@ interface Segment {
   room: string | null;
   subgroup: string | null;
   leadingType: LessonType | null;
+  /** A type marker on its own line ("Proiect", "lab."), kept in case it is all there is. */
+  marker: string | null;
 }
 
 function emptySegment(): Segment {
-  return { subjectLines: [], teacher: null, room: null, subgroup: null, leadingType: null };
+  return { subjectLines: [], teacher: null, room: null, subgroup: null, leadingType: null, marker: null };
 }
 
 export function isRoom(text: string): boolean {
   return ROOM_RE.test(text.trim());
+}
+
+/** A room given with the auditorium's name ("3-3 Amdaris") or by name only ("Sala sportivă"). */
+export function isVenue(text: string): boolean {
+  const value = text.trim();
+  return VENUE_ROOM_RE.test(value) || NAMED_VENUE_RE.test(value);
 }
 
 export function isTeacher(text: string): boolean {
@@ -74,11 +97,17 @@ export function segmentLines(lines: string[]): Segment[] {
     const loneMarker = LONE_MARKER_RE.exec(line);
     if (loneMarker) {
       pendingType = TYPE_PREFIXES.find((entry) => entry.pattern.test(`${line} `))?.type ?? null;
+      // "Proiect" on its own is both the kind of class and its name; keep the word in
+      // case no subject line follows.
+      if (current.subjectLines.length === 0) {
+        current.marker = line;
+        current.leadingType = current.leadingType ?? pendingType;
+      }
       continue;
     }
 
     for (const part of splitMixedLine(line)) {
-      if (isRoom(part)) {
+      if (isRoom(part) || isVenue(part)) {
         if (current.room !== null) startNew();
         current.room = normalizeRoom(part);
       } else if (isTeacher(part)) {
@@ -95,19 +124,39 @@ export function segmentLines(lines: string[]): Segment[] {
     }
   }
   if (hasContent(current)) segments.push(current);
-  return segments;
+  return mergeContinuations(segments);
 }
 
-/** "5-511 Cuciuc V" → ["5-511", "Cuciuc V"]; otherwise the line unchanged. */
+/**
+ * A cell can name the second room (or teacher) of a split lesson on its own line:
+ * "L. Engleză" / "720" / "601". Such a trailing fragment continues the lesson above
+ * instead of becoming a second, subject-less one.
+ */
+function mergeContinuations(segments: Segment[]): Segment[] {
+  const merged: Segment[] = [];
+  for (const segment of segments) {
+    const previous = merged[merged.length - 1];
+    if (previous && segment.subjectLines.length === 0) {
+      if (segment.room) previous.room = previous.room ? `${previous.room}/${segment.room}` : segment.room;
+      if (segment.teacher) previous.teacher = previous.teacher ? `${previous.teacher}, ${segment.teacher}` : segment.teacher;
+      previous.subgroup = previous.subgroup ?? segment.subgroup;
+      continue;
+    }
+    merged.push(segment);
+  }
+  return merged;
+}
+
+/** "5-511 Cuciuc V" → ["5-511", "Cuciuc V"]; otherwise the line stays whole. */
 function splitMixedLine(line: string): string[] {
   const tokens = line.split(" ");
   if (tokens.length < 2) return [line];
   for (let split = 1; split < tokens.length; split += 1) {
     const head = tokens.slice(0, split).join(" ");
     const tail = tokens.slice(split).join(" ");
-    if ((isRoom(head) && (isTeacher(tail) || !isRoom(tail))) || (isRoom(tail) && (isTeacher(head) || !isRoom(head)))) {
-      if (isRoom(head) || isRoom(tail)) return [head, tail];
-    }
+    // Only a room glued to a teacher may be split. In "3-3 Amdaris" the trailing word
+    // is the auditorium's name, and splitting it would invent a subject-less lesson.
+    if ((isRoom(head) && isTeacher(tail)) || (isTeacher(head) && isRoom(tail))) return [head, tail];
   }
   return [line];
 }
@@ -145,12 +194,18 @@ export function interpretCell(cell: TableCell): Lesson[] {
   if (cell.background) notes.push(`Evidențiat în PDF (${cell.background})`);
 
   segments.forEach((segment, index) => {
-    const joinedSubject = segment.subjectLines.join(" ");
+    const joinedSubject = segment.subjectLines.length > 0 ? segment.subjectLines.join(" ") : (segment.marker ?? "");
     const { type, subject } = classifyType(joinedSubject, segment.leadingType);
     const normalizedSubject = normalizeSubject(subject);
     const hasSubject = normalizedSubject.length > 0;
-    const uncertain = !hasSubject || (segment.teacher === null && segment.room === null && !isSelfContained(type));
-    const confidence = scoreConfidence(hasSubject, segment, type, segments.length);
+    // Uncertain means the *subject* could not be read: it is missing, or it is really a
+    // room, or – with no teacher found – a teacher name, so the lines were given the
+    // wrong roles. A missing teacher or room is not a parsing failure: that is simply how
+    // the timetable prints sports, languages and shared labs.
+    const misread =
+      isRoom(normalizedSubject) || isVenue(normalizedSubject) || (segment.teacher === null && isTeacher(normalizedSubject));
+    const uncertain = !hasSubject || misread;
+    const confidence = scoreConfidence(hasSubject, segment, type, normalizedSubject, segments.length);
 
     lessons.push({
       id: lessonId(cell, index),
@@ -166,7 +221,7 @@ export function interpretCell(cell: TableCell): Lesson[] {
       lesson_type: type,
       subgroup: segment.subgroup,
       week_parity: parity,
-      notes: uncertain ? [...notes, "Conținutul celulei nu a putut fi interpretat cu certitudine"] : notes,
+      notes: uncertain ? [...notes, "Materia nu a putut fi separată de profesor și sală"] : notes,
       raw_text: rawText,
       geometry: { page: cell.page, ...cell.bounds },
       confidence,
@@ -188,18 +243,26 @@ function parityFromPosition(position: TableCell["position"]): WeekParity {
   return "both";
 }
 
-/** Physical education / language cells frequently omit room or teacher on purpose. */
-function isSelfContained(type: LessonType): boolean {
-  return type === "physical_education" || type === "language";
+/** Sports, languages and self-study slots omit the room or the teacher on purpose. */
+function isSelfContained(type: LessonType, subject: string): boolean {
+  return type === "physical_education" || type === "language" || SELF_STUDY_RE.test(subject);
 }
 
-function scoreConfidence(hasSubject: boolean, segment: Segment, type: LessonType, segmentCount: number): number {
+function scoreConfidence(
+  hasSubject: boolean,
+  segment: Segment,
+  type: LessonType,
+  subject: string,
+  segmentCount: number,
+): number {
   if (!hasSubject) return 0.3;
   let score = 0.6;
   if (segment.teacher) score += 0.2;
   if (segment.room) score += 0.15;
   if (type !== "unknown") score += 0.05;
   if (segmentCount > 1) score -= 0.1;
+  // Nothing is missing when the timetable never prints it for this kind of slot.
+  if (isSelfContained(type, subject) && !segment.teacher) score += 0.2;
   return Math.max(0, Math.min(1, Math.round(score * 100) / 100));
 }
 

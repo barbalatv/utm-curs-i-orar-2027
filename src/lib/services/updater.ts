@@ -81,8 +81,12 @@ async function runCheck(options: { force?: boolean }): Promise<CheckResult> {
   try {
     const discovery = await discoverCurrentPdf();
     const { pdf, kind } = discovery;
+    // A cache produced by an older parser is stale even when the PDF is byte-identical,
+    // so ask for the body instead of a 304 and re-parse it below.
+    const staleParser = current !== null && current.metadata.parser_version !== config.parserVersion;
+    const reparse = options.force || staleParser;
     const sameUrl = state.current_pdf_url === pdf.pdf_url && current !== null;
-    const conditional = sameUrl && !options.force ? { etag: state.etag, lastModified: state.last_modified } : {};
+    const conditional = sameUrl && !reparse ? { etag: state.etag, lastModified: state.last_modified } : {};
 
     const downloadUrl = kind === "wayback" ? waybackUrl(pdf.pdf_url) : pdf.pdf_url;
     const extraHosts = kind === "wayback" ? [config.waybackHost] : [];
@@ -94,7 +98,7 @@ async function runCheck(options: { force?: boolean }): Promise<CheckResult> {
     }
 
     const hash = sha256(resource.bytes);
-    if (!options.force && current && hash === current.metadata.source_pdf_hash) {
+    if (!reparse && current && hash === current.metadata.source_pdf_hash) {
       await saveSourceState({
         last_check_at: startedAt,
         last_result: "unchanged",
@@ -118,6 +122,12 @@ async function runCheck(options: { force?: boolean }): Promise<CheckResult> {
       academic_year: pdf.academic_year,
       semester: pdf.semester,
     };
+    if (staleParser) {
+      log.info("re-parsing the cached PDF with the new parser", {
+        from: current?.metadata.parser_version,
+        to: config.parserVersion,
+      });
+    }
     const applied = await parseAndApply(resource.bytes, provenance, current);
     await saveSourceState({
       last_check_at: startedAt,

@@ -39,9 +39,13 @@ export function normalizeTeacher(raw: string): string {
   return `${match[1]} ${initials}.`;
 }
 
-/** "D 01-03" → "D01-03", "5 - 114" → "5-114" */
+/** "D 01-03" → "D01-03", "5 - 114" → "5-114", "D-01 / D-03" → "D-01/D-03" */
 export function normalizeRoom(raw: string): string {
-  return cleanText(raw).replace(/\s*-\s*/g, "-").replace(/^([A-Za-z])\s+(\d)/, "$1$2").replace(/\s+/g, " ");
+  return cleanText(raw)
+    .replace(/\s*-\s*/g, "-")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/^([A-Za-z])\s+(\d)/, "$1$2")
+    .replace(/\s+/g, " ");
 }
 
 /** "0,5 gr." | "05,gr." | "0.5 gr." → "0.5 gr." */

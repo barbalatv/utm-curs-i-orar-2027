@@ -56,24 +56,73 @@ export function buildGrid(rects: FillRect[]): Grid {
   };
 }
 
-/** Merge overlapping/touching collinear segments so partial borders behave like one line. */
+/**
+ * Merge overlapping/touching collinear segments so partial borders behave like one line.
+ *
+ * Segments are first bucketed by their perpendicular position, then merged *within* a
+ * bucket in `from` order. Doing it in one pass over a list sorted by `at` would let a
+ * segment that merely shares the bucket (a border drawn 0.1 pt aside) swallow the gaps
+ * between the others – and those gaps are exactly what marks a merged (colspan/rowspan)
+ * cell, whose internal borders are simply not drawn.
+ */
 export function mergeSegments(segments: LineSegment[]): LineSegment[] {
-  const sorted = [...segments].sort((a, b) => a.at - b.at || a.from - b.from);
   const merged: LineSegment[] = [];
-  for (const segment of sorted) {
-    const last = merged[merged.length - 1];
-    if (
-      last &&
-      Math.abs(last.at - segment.at) <= COLLINEAR_TOLERANCE_PT &&
-      segment.from <= last.to + JOIN_GAP_PT
-    ) {
-      last.to = Math.max(last.to, segment.to);
-      last.from = Math.min(last.from, segment.from);
-    } else {
-      merged.push({ ...segment });
+  for (const bucket of bucketByPosition(segments)) {
+    // One representative position per bucket keeps cell keys stable when the same
+    // border is drawn as several rectangles rounded slightly differently.
+    const at = representativePosition(bucket);
+    let run: LineSegment | null = null;
+    for (const segment of [...bucket].sort((a, b) => a.from - b.from)) {
+      if (run && segment.from <= run.to + JOIN_GAP_PT) {
+        run.to = Math.max(run.to, segment.to);
+      } else {
+        run = { at, from: segment.from, to: segment.to };
+        merged.push(run);
+      }
     }
   }
-  return merged;
+  return merged.sort((a, b) => a.at - b.at || a.from - b.from);
+}
+
+/**
+ * Collinear segments, grouped by position. A border can be painted as several
+ * rectangles a fraction of a point apart (solid edge + dashed overlay), so
+ * neighbours within COLLINEAR_TOLERANCE_PT chain into the same bucket, bounded
+ * by the thickness a single border may plausibly have.
+ */
+function bucketByPosition(segments: LineSegment[]): LineSegment[][] {
+  const buckets: LineSegment[][] = [];
+  let previous = Number.NaN;
+  let start = Number.NaN;
+  for (const segment of [...segments].sort((a, b) => a.at - b.at)) {
+    const current = buckets[buckets.length - 1];
+    const chains =
+      current !== undefined && segment.at - previous <= COLLINEAR_TOLERANCE_PT && segment.at - start <= LINE_THICKNESS_PT;
+    if (chains) {
+      current.push(segment);
+    } else {
+      buckets.push([segment]);
+      start = segment.at;
+    }
+    previous = segment.at;
+  }
+  return buckets;
+}
+
+/** Length-weighted centre of a bucket: the long ruling wins over short stubs. */
+function representativePosition(bucket: LineSegment[]): number {
+  let weight = 0;
+  let sum = 0;
+  for (const segment of bucket) {
+    const length = Math.max(segment.to - segment.from, 0.01);
+    weight += length;
+    sum += segment.at * length;
+  }
+  return round2(sum / weight);
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /**
@@ -81,7 +130,9 @@ export function mergeSegments(segments: LineSegment[]): LineSegment[] {
  * is not enclosed on all four sides (e.g. document title outside the table).
  */
 export function enclosingCell(grid: Grid, cx: number, cy: number): CellBounds | null {
-  const epsilon = 0.3;
+  // Near zero on purpose: a ruling the point sits *on* still bounds it, so text drawn
+  // across a row separator stays in the row it mostly covers instead of merging both.
+  const epsilon = 0.01;
   let left = -Infinity;
   let right = Infinity;
   let top = -Infinity;

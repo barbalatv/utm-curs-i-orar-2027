@@ -5,12 +5,14 @@
  */
 import { DAY_NAMES, type DayName, type GroupColumn, type TimeSlot } from "@/lib/models";
 import { normalizeTime } from "./normalizer";
-import { enclosingCell, centerOf, type CellBounds, type Grid } from "./geometry";
+import { enclosingCell, centerOf, overlap1d, type CellBounds, type Grid } from "./geometry";
 import type { TextItem } from "./pdf-extract";
 
 /** Group codes such as SI-261, IBM-261, FAF-261, R-261. */
 export const GROUP_CODE_RE = /^([A-ZĂÂÎȘŞȚŢ]{1,5})-(\d{3}[A-Za-z]?)$/;
 const TIME_RANGE_RE = /^(\d{1,2})[.:](\d{2})\s*[-–]\s*(\d{1,2})[.:](\d{2})$/;
+/** Share of a candidate header cell that must lie inside the header band. */
+const HEADER_BAND_OVERLAP = 0.8;
 
 const DAY_ALIASES: Record<string, DayName> = {
   luni: "Luni",
@@ -71,6 +73,12 @@ export function detectGroups(texts: TextItem[], grid: Grid): GroupColumn[] {
   return dedupeOverlappingColumns(groups);
 }
 
+/**
+ * The header band: the busiest ruled row plus every candidate whose header cell
+ * overlaps it. Header cells are not always ruled identically – a column may carry
+ * two group codes and start a line higher – so exact y-equality would drop real
+ * columns, while requiring overlap still rejects lesson text one row below.
+ */
 function busiestCellRow(candidates: Array<{ column: GroupColumn; cell: CellBounds }>) {
   const rows = new Map<string, Array<{ column: GroupColumn; cell: CellBounds }>>();
   for (const candidate of candidates) {
@@ -79,7 +87,13 @@ function busiestCellRow(candidates: Array<{ column: GroupColumn; cell: CellBound
     row.push(candidate);
     rows.set(key, row);
   }
-  return [...rows.values()].sort((a, b) => b.length - a.length)[0] ?? [];
+  const busiest = [...rows.values()].sort((a, b) => b.length - a.length)[0];
+  if (!busiest) return [];
+  const band = busiest[0].cell;
+  return candidates.filter(({ cell }) => {
+    const reference = Math.min(cell.y1 - cell.y0, band.y1 - band.y0);
+    return reference > 0 && overlap1d(cell.y0, cell.y1, band.y0, band.y1) >= reference * HEADER_BAND_OVERLAP;
+  });
 }
 
 function uniqueCellWidths(candidates: Array<{ cell: CellBounds }>): number[] {

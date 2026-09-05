@@ -61,7 +61,7 @@ export function LessonCard({ lesson, status = "upcoming", compact = false, focus
       {!compact && sharedWith.length > 12 && <p className="mt-2 text-xs text-slate-500">Lecție comună pentru {lesson.groups.length} grupe</p>}
       {lesson.uncertain && (
         <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800" title={lesson.raw_text}>
-          Nu s-a putut recunoaște fără echivoc. Text original: „{lesson.raw_text}”
+          Materia nu a putut fi identificată în celulă. Text din PDF: „{lesson.raw_text}”
         </p>
       )}
       {!compact && displayNotes.length > 0 && <p className="mt-1 text-xs text-slate-500">{displayNotes.join(" · ")}</p>}

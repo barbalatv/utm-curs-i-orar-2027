@@ -37,9 +37,9 @@
     "FAF-252",
     "FAF-253"
   ],
-  "lessons": 442,
+  "lessons": 440,
   "merged_lessons": 84,
-  "max_uncertain": 5,
+  "max_uncertain": 2,
   "per_group": {
     "TI-251": 19,
     "TI-252": 19,
@@ -65,7 +65,7 @@
     "IBM-251": 19,
     "CR-253": 21,
     "R-252": 20,
-    "IBM-252": 22,
+    "IBM-252": 20,
     "EA-251": 20,
     "IA-251": 18,
     "IA-252": 18,
@@ -86,7 +86,8 @@
       "teacher": "Ceban Gh.",
       "room": "6-2",
       "lesson_type": "lecture",
-      "week_parity": "both"
+      "week_parity": "both",
+      "group_count": 8
     },
     {
       "day": "Luni",
@@ -96,7 +97,8 @@
       "teacher": "Tiholaz T.",
       "room": "107",
       "lesson_type": "unknown",
-      "week_parity": "odd"
+      "week_parity": "odd",
+      "group_count": 1
     },
     {
       "day": "Luni",
@@ -106,7 +108,8 @@
       "teacher": "Toma O.",
       "room": "107",
       "lesson_type": "unknown",
-      "week_parity": "even"
+      "week_parity": "even",
+      "group_count": 1
     },
     {
       "day": "Luni",
@@ -116,7 +119,8 @@
       "teacher": "Dubciuc D.",
       "room": "215",
       "lesson_type": "unknown",
-      "week_parity": "both"
+      "week_parity": "both",
+      "group_count": 1
     },
     {
       "day": "Luni",
@@ -126,7 +130,8 @@
       "teacher": null,
       "room": null,
       "lesson_type": "physical_education",
-      "week_parity": "even"
+      "week_parity": "even",
+      "group_count": 1
     },
     {
       "day": "Luni",
@@ -136,7 +141,30 @@
       "teacher": "Prozor-Barbalat L.",
       "room": "607",
       "lesson_type": "language",
-      "week_parity": "both"
+      "week_parity": "both",
+      "group_count": 8
+    },
+    {
+      "day": "Luni",
+      "start_time": "09:45",
+      "group": "TI-251",
+      "subject": "Analiza Matematică 2",
+      "teacher": "Costaș A.",
+      "room": "3-3",
+      "lesson_type": "lecture",
+      "week_parity": "both",
+      "group_count": 8
+    },
+    {
+      "day": "Marți",
+      "start_time": "11:30",
+      "group": "IBM-252",
+      "subject": "L. Engleză",
+      "teacher": "Dutova L.",
+      "room": "401",
+      "lesson_type": "language",
+      "week_parity": "both",
+      "group_count": 1
     }
   ]
 }

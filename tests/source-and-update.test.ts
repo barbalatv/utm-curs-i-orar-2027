@@ -14,7 +14,7 @@ process.env.SCHEDULE_SEED_PDF_MIRROR_URL = SEED_MIRROR_URL;
 const { discoverPdf } = await import("@/lib/source/discovery");
 const { isAllowedSourceUrl, fetchPdf, SourceFetchError } = await import("@/lib/source/downloader");
 const { checkForUpdates } = await import("@/lib/services/updater");
-const { getCurrentSchedule, getSourceState, resetStorageCache } = await import("@/lib/storage");
+const { getCurrentSchedule, getSourceState, replaceCurrentSchedule, resetStorageCache } = await import("@/lib/storage");
 const { sha256 } = await import("@/lib/parser");
 
 const PAGE_FIXTURE = path.join(__dirname, "fixtures", "orar-page.html");
@@ -179,6 +179,40 @@ describe("test_hash_change_detection & test_invalid_pdf_keeps_old_schedule", () 
     resetStorageCache();
     const reloaded = await getCurrentSchedule();
     expect(reloaded!.metadata.source_pdf_hash).toBe(sha256(pdfBytesB));
+  });
+});
+
+describe("test_parser_upgrade_reparses_cached_pdf", () => {
+  it("re-parses an unchanged PDF when the cache came from an older parser", async () => {
+    resetStorageCache();
+    stubFetch({
+      [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
+      [PDF_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v1"' } },
+    });
+    expect((await checkForUpdates()).outcome).toBe("updated");
+
+    // Pretend the cache on disk was written by the previous parser release. Fixing a
+    // parsing bug must reach users without waiting for the university to republish.
+    const cached = await getCurrentSchedule();
+    await replaceCurrentSchedule({ ...cached!, metadata: { ...cached!.metadata, parser_version: "0.0.1" } });
+    resetStorageCache();
+
+    const calls = stubFetch({
+      [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
+      [PDF_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v1"' } },
+    });
+    const upgraded = await checkForUpdates();
+    expect(upgraded.outcome).toBe("updated");
+    // The conditional headers are dropped, otherwise a 304 would hide the PDF body.
+    expect(calls.find((call) => call.url === PDF_URL)?.headers["if-none-match"]).toBeUndefined();
+    expect((await getCurrentSchedule())!.metadata.parser_version).not.toBe("0.0.1");
+
+    // A second run finds a matching parser version again and stops re-parsing.
+    stubFetch({
+      [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
+      [PDF_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v1"' } },
+    });
+    expect((await checkForUpdates()).outcome).toBe("unchanged");
   });
 });
 

@@ -33,7 +33,7 @@ every SCHEDULE_REFRESH_MINUTES (default 30) + once at startup
   │  conditional GET (If-None-Match / If-Modified-Since) – HTTPS, allow-listed hosts only,
   │  ≤5 redirects, 20 s timeout, ≤25 MB, "%PDF-" magic check
   │        │
-  │        ├─ 304 or same SHA-256 ─▶ record "unchanged", done
+  │        ├─ 304 or same SHA-256 (and same parser version) ─▶ record "unchanged", done
   │        ▼
   │  parse ─▶ validate (≥5 groups, all 5 days, ≥30 lessons, times, geometry,
   │           ≤40 % drop vs previous version, uncertain ratio)
@@ -46,6 +46,10 @@ every SCHEDULE_REFRESH_MINUTES (default 30) + once at startup
 
 `data/metadata.json` keeps: current PDF URL, SHA-256, ETag, Last-Modified, last check,
 last success, last error, last result, academic year / semester, parity note.
+
+Raising `config.parserVersion` invalidates the cache: the next check re-downloads and
+re-parses the PDF even when it is byte-identical, so a parser fix reaches users without
+waiting for the university to publish a new file.
 
 ## Architecture
 
@@ -165,7 +169,7 @@ published.
     "source_page_url": "https://fcim.utm.md/procesul-de-studii/orar/",
     "source_pdf_url": "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-5.pdf",
     "source_pdf_hash": "sha256…", "source_kind": "live | wayback | seed | manual",
-    "downloaded_at": "…", "parsed_at": "…", "parser_version": "1.0.0",
+    "downloaded_at": "…", "parsed_at": "…", "parser_version": "1.1.0",
     "etag": null, "last_modified": null, "pdf_title": "ANUL UNIVERSITAR 2026/2027, ANUL I, SEMESTRUL I"
   },
   "groups": [{ "name": "SI-261", "program": "SI", "x0": 52.6, "x1": 79.8 }],
