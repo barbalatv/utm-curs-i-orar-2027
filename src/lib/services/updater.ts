@@ -194,8 +194,14 @@ async function seedFromBundledPdf(): Promise<CheckResult | null> {
     }
   }
   if (!bytes) {
-    log.warn("no seed PDF available", { paths });
-    return null;
+    try {
+      const mirror = await fetchPdf(config.seedPdfMirrorUrl, {}, ["raw.githubusercontent.com"]);
+      bytes = mirror.bytes;
+      log.warn("loaded seed PDF from the repository mirror", { url: config.seedPdfMirrorUrl });
+    } catch (error) {
+      log.warn("no seed PDF available", { paths, mirror: config.seedPdfMirrorUrl, error: errorMessage(error) });
+      return null;
+    }
   }
   const now = new Date().toISOString();
   const applied = await parseAndApply(

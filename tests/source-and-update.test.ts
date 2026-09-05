@@ -8,6 +8,8 @@ process.env.SCHEDULE_DATA_DIR = tempDir;
 process.env.DATABASE_URL = "";
 process.env.SCHEDULE_WAYBACK_FALLBACK = "0";
 process.env.SCHEDULE_SEED_PDF = path.join(tempDir, "missing-seed.pdf");
+const SEED_MIRROR_URL = "https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/anul_i_semestrul_i-5.pdf";
+process.env.SCHEDULE_SEED_PDF_MIRROR_URL = SEED_MIRROR_URL;
 
 const { discoverPdf } = await import("@/lib/source/discovery");
 const { isAllowedSourceUrl, fetchPdf, SourceFetchError } = await import("@/lib/source/downloader");
@@ -177,5 +179,29 @@ describe("test_hash_change_detection & test_invalid_pdf_keeps_old_schedule", () 
     resetStorageCache();
     const reloaded = await getCurrentSchedule();
     expect(reloaded!.metadata.source_pdf_hash).toBe(sha256(pdfBytesB));
+  });
+});
+
+describe("test_remote_seed_bootstrap", () => {
+  it("loads the repository mirror when the live sources and local seed are unavailable", async () => {
+    await Promise.all([
+      rm(path.join(tempDir, "current_schedule.json"), { force: true }),
+      rm(path.join(tempDir, "metadata.json"), { force: true }),
+    ]);
+    resetStorageCache();
+
+    const wordpressUrl = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+    const calls = stubFetch({
+      [PAGE_URL]: { status: 403, body: "Just a moment...", headers: { "cf-mitigated": "challenge" } },
+      [wordpressUrl]: { status: 403, body: "Just a moment...", headers: { "cf-mitigated": "challenge" } },
+      [SEED_MIRROR_URL]: { body: pdfBytes, headers: { "content-type": "application/octet-stream" } },
+    });
+
+    const result = await checkForUpdates();
+    expect(result.outcome).toBe("seeded");
+    expect(calls.some((call) => call.url === SEED_MIRROR_URL)).toBe(true);
+    const schedule = await getCurrentSchedule();
+    expect(schedule?.metadata.source_kind).toBe("seed");
+    expect(schedule?.lessons.length).toBeGreaterThan(300);
   });
 });

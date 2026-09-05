@@ -74,6 +74,10 @@ export const config = {
   seedPdfOriginalUrl:
     process.env.SCHEDULE_SEED_PDF_URL ??
     "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-5.pdf",
+  /** Public copy of the bundled PDF for hosts that do not preserve image files at runtime. */
+  seedPdfMirrorUrl:
+    process.env.SCHEDULE_SEED_PDF_MIRROR_URL ??
+    "https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/anul_i_semestrul_i-5.pdf",
   /** Course year served by this deployment ("Anul I"). */
   courseYear: envInt("SCHEDULE_COURSE_YEAR", 1),
   /** Token required for POST /api/admin/refresh. Empty = endpoint disabled. */
