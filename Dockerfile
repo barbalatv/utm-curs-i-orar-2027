@@ -6,8 +6,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# Keep the runtime COPY valid even when the app has no static public assets.
 # The build does not need a database; the scheduler is started at runtime only.
-RUN SCHEDULE_DISABLE_SCHEDULER=1 npm run build
+RUN mkdir -p public && SCHEDULE_DISABLE_SCHEDULER=1 npm run build
 
 # ---- Stage 2: minimal production runtime ----
 FROM node:22-bookworm-slim AS runner
