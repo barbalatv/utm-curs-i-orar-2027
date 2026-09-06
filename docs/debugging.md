@@ -126,7 +126,7 @@ semester), `SCHEDULE_ALLOWED_HOSTS`, `SCHEDULE_WORDPRESS_FALLBACK`,
 `SCHEDULE_WAYBACK_FALLBACK`,
 `SCHEDULE_HTTP_TIMEOUT_MS`, `SCHEDULE_MAX_REDIRECTS`, `SCHEDULE_MAX_PDF_MB`, `SCHEDULE_DATA_DIR`,
 `SCHEDULE_SEED_PDF`, `SCHEDULE_SEED_PDF_URL`, `SCHEDULE_SEED_PDF_MIRROR_URL`,
-`SCHEDULE_SEED_PDF_SHA256`,
+`SCHEDULE_SEED_PDF_SHA256` (Anul I) and the same four with `_2` appended (Anul II),
 `DATABASE_URL` (optional), `SCHEDULE_ADMIN_TOKEN`, `SCHEDULE_DISABLE_SCHEDULER`, `LOG_LEVEL`.
 
 Course configuration is validated at startup and the process refuses to boot on a bad value rather
@@ -135,6 +135,13 @@ years (`1`, `2`) with no empty, padded, zero-prefixed or duplicated entries, and
 `SCHEDULE_DEFAULT_COURSE` must name exactly one course that `SCHEDULE_COURSES` enables. The removed
 `SCHEDULE_COURSE_YEAR` is also a hard stop: if it is still set, startup fails with a message naming
 its replacement instead of quietly serving a different set of courses than the operator configured.
+
+Seed settings are per course and never shared: course 1 keeps the historical unsuffixed names and
+every other course appends `_<year>`, so `SCHEDULE_SEED_PDF_2` can only describe Anul II. Both
+courses ship a verified PDF under `data/seed/`, which the Docker image also copies to `/app/seed` so
+a mounted (initially empty) `/app/data` volume cannot hide it. A seed is a cold-start fallback only —
+the live PDF discovered on the official page always wins — and it is still subject to the course-year
+guard, so an Anul I document placed in Anul II's seed slot is rejected rather than installed.
 
 `SCHEDULE_SEED_PDF_SHA256` pins only the remote mirror fallback. If an operator changes the mirror
 or the official provenance URL, they must set this value to the SHA-256 of the intended mirror

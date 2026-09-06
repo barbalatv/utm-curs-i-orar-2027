@@ -23,6 +23,9 @@ process.env.SCHEDULE_DATA_DIR = tempDir;
 process.env.DATABASE_URL = "";
 process.env.SCHEDULE_WAYBACK_FALLBACK = "0";
 process.env.SCHEDULE_WORDPRESS_FALLBACK = "0";
+// Both courses now ship a seed, so point course 2's at a path that does not exist: these
+// tests are about coordination, and a successful seed fallback would mask a failed run.
+process.env.SCHEDULE_SEED_PDF_2 = path.join(tempDir, "absent-anul-ii-seed.pdf");
 
 /** Stands in for the bundle that runs the scheduler. */
 const scheduler = await import("@/lib/services/updater");
@@ -30,7 +33,8 @@ const { resetStorageCache } = await import("@/lib/storage");
 
 const PAGE_FIXTURE = path.join(__dirname, "fixtures", "orar-page-autumn-2026.html");
 const ANUL_I_PDF = path.join(__dirname, "..", "data", "seed", "anul_i_semestrul_i-9.pdf");
-const ANUL_II_PDF = path.join(__dirname, "fixtures", "anul_ii_semestrul_iii-8.pdf");
+/** The Anul II timetable now lives in data/seed: it is both the cold-start fallback and this fixture. */
+const ANUL_II_PDF = path.join(__dirname, "..", "data", "seed", "anul_ii_semestrul_iii-8.pdf");
 const PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
 const ANUL_I_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf";
 const ANUL_II_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_ii_semestrul_iii-8.pdf";
@@ -212,8 +216,8 @@ describe("two module instances in one process", () => {
     const api = await loadSecondBundle();
     vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 503 })));
 
-    // Course 2 has no bundled seed, so an unreachable source really does end in an error
-    // rather than falling back the way course 1 would.
+    // Course 2's seed path is deliberately empty in this file and its mirror is not routed,
+    // so an unreachable source really does end in an error rather than a seeded fallback.
     const failed = await scheduler.checkForUpdates(2);
     expect(failed.outcome).toBe("error");
     // A settled run must not leave a poisoned promise every later caller would join.

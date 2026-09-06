@@ -16,7 +16,7 @@ switcher; the API takes `?course=`, defaulting to Anul I when it is omitted.
   *"Ciclul I, Licență - învățământ cu frecvență"* → row *"Orar Semestrul …"* → link **Anul I** /
   **Anul II**.
 - Automatic discovery does not hard-code a current PDF URL, group list, or lesson. The repository
-  also carries one verified real PDF (Anul I) as a bootstrap/recovery seed.
+  also carries one verified real PDF **per course** as a bootstrap/recovery seed.
 
 > **Stack note.** The task brief suggested FastAPI + Vite. This sandbox provides a Next.js runtime,
 > so the *same architecture* is implemented as one deployable Next.js app: TypeScript backend
@@ -77,8 +77,10 @@ Debugging and stuff can be found [here](docs/debugging.md ).
   being presented as current. If every network source fails and no cache exists, the bundled seed
   remains the last resort; its remote mirror is accepted only when its SHA-256 matches the configured
   official seed, and any candidate whose parsed course year differs from the course being updated is
-  refused outright. Only Anul I ships a verified seed: on a cold start with discovery blocked, Anul II
-  reports the failure and stays unavailable rather than serving Anul I data. A newer
+  refused outright. Each course ships its own verified seed (`data/seed/`), so a cold start with
+  discovery blocked serves that course's last published timetable rather than nothing — and never
+  another course's: an Anul I PDF offered to Anul II is rejected by the course-year guard, and a
+  course with no bundled PDF stays unavailable instead of borrowing one. A newer
   packaged seed may also promote an older persisted seed from the
   exact same academic context, but never live/Wayback/admin-recovered data. Operators can invoke an
   authenticated explicit official-PDF refresh when page discovery is blocked. This does not bypass
@@ -164,10 +166,14 @@ Provenance of the committed copies, all retrieved from the official source:
 
 | File | Origin | Role |
 | --- | --- | --- |
-| `data/seed/anul_i_semestrul_i-9.pdf` | `fcim.utm.md/wp-content/uploads/sites/24/2026/09/` | the **only** runtime seed — Anul I cold-start fallback |
-| `tests/fixtures/anul_i_semestrul_i-{3,5}.pdf`, `anul_i_semestrul_ii-1.pdf` | same, earlier publications | parser regression fixtures, test-only |
-| `tests/fixtures/anul_ii_semestrul_iii-8.pdf` | same, autumn 2026/2027 Anul II timetable | test-only fixture for the multi-course suites; **not** a seed — Anul II deliberately has no cold-start fallback |
+| `data/seed/anul_i_semestrul_i-9.pdf` | `fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf` | Anul I cold-start seed (SHA-256 `52e7f14b…8c015`); also the Anul I regression fixture |
+| `data/seed/anul_ii_semestrul_iii-8.pdf` | `fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_ii_semestrul_iii-8.pdf` | Anul II cold-start seed (SHA-256 `35b0ce85…19187`); also the Anul II regression fixture — one copy serves both roles |
+| `tests/fixtures/anul_i_semestrul_i-{3,5}.pdf`, `anul_i_semestrul_ii-1.pdf` | same host, earlier publications | parser regression fixtures, test-only |
 | `tests/fixtures/orar-page-autumn-2026.html`, `orar-page.html` | `fcim.utm.md/procesul-de-studii/orar/` | discovery fixtures, test-only |
 
 Nothing under `tests/` is loaded at runtime or shipped in the container image (see
-`.dockerignore`); the Anul II fixture exists so the two-course behaviour can be proven offline.
+`.dockerignore`). The two files under `data/seed/` are the exception and are deliberately dual-role:
+each is the cold-start fallback its course installs when FCIM is unreachable *and* the fixture its
+regression tests parse, so there is exactly one copy of each PDF in the repository. A seed is only
+ever a fallback — the live PDF discovered on the official page always wins, and a seed is never
+installed for a course whose year it does not match.

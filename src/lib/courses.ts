@@ -59,11 +59,31 @@ export class UnsupportedCourseError extends Error {
   }
 }
 
-const DEFAULT_SEED_PDF_URL =
-  "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf";
-const DEFAULT_SEED_PDF_MIRROR_URL =
-  "https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/anul_i_semestrul_i-9.pdf";
-const DEFAULT_SEED_PDF_SHA256 = "52e7f14be27a996e17d0614c1f9fe769d63bdf76876fce6d4fc60f026bf8c015";
+/**
+ * The verified bundled PDF of each course: a real, previously published FCIM timetable,
+ * used only as a cold-start fallback when the live source cannot be reached. It is never
+ * the live update source, and the course-year guard still checks every parsed candidate.
+ *
+ * Every course carries its own file, URL and hash. Nothing is shared or derived between
+ * courses — an Anul II seed must never be describable by an Anul I setting.
+ */
+const BUNDLED_SEEDS: Record<number, { fileName: string; originalUrl: string; sha256: string }> = {
+  1: {
+    fileName: "anul_i_semestrul_i-9.pdf",
+    originalUrl: "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf",
+    sha256: "52e7f14be27a996e17d0614c1f9fe769d63bdf76876fce6d4fc60f026bf8c015",
+  },
+  2: {
+    fileName: "anul_ii_semestrul_iii-8.pdf",
+    originalUrl: "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_ii_semestrul_iii-8.pdf",
+    sha256: "35b0ce85609198e344d6f78ffdc8df80d75b36430817e0bc1393c7a0eb019187",
+  },
+};
+
+/** This repository's own copy of a bundled seed, for hosts that drop image files at runtime. */
+function repositoryMirrorUrl(fileName: string): string {
+  return `https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/${fileName}`;
+}
 
 /**
  * Canonical decimal course year: no sign, no leading zero, no fraction, no padding,
@@ -77,32 +97,47 @@ function resolveFromCwd(relative: string): string {
 }
 
 /**
- * Anul I ships with a verified seed (the PDF in data/seed). Its knobs stay
- * overridable because the packaged file is replaced every semester.
+ * Seed overrides are per course and never shared. Course 1 keeps the historical
+ * unsuffixed variable names; every other course uses the same names with `_<year>`
+ * appended, so `SCHEDULE_SEED_PDF_2` can only ever describe Anul II. Setting a course 1
+ * variable must not silently change what Anul II installs, and vice versa.
  */
-function anulISeed(env: NodeJS.ProcessEnv): CourseSeed {
-  const originalUrl = env.SCHEDULE_SEED_PDF_URL ?? DEFAULT_SEED_PDF_URL;
-  const mirrorUrl = env.SCHEDULE_SEED_PDF_MIRROR_URL ?? DEFAULT_SEED_PDF_MIRROR_URL;
+function seedEnv(env: NodeJS.ProcessEnv, courseYear: number, name: string): string | undefined {
+  return courseYear === 1 ? env[name] : env[`${name}_${courseYear}`];
+}
+
+/**
+ * The bundled seed of one course, with its overridable knobs resolved. A course with no
+ * entry in BUNDLED_SEEDS has no cold-start fallback and stays unavailable until the live
+ * source answers — it never borrows another course's file.
+ */
+function seedFor(env: NodeJS.ProcessEnv, courseYear: number): CourseSeed | null {
+  const bundled = BUNDLED_SEEDS[courseYear];
+  if (!bundled) return null;
+
+  const defaultMirrorUrl = repositoryMirrorUrl(bundled.fileName);
+  const originalUrl = seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_URL") ?? bundled.originalUrl;
+  const mirrorUrl = seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_MIRROR_URL") ?? defaultMirrorUrl;
   return {
-    pdfPath: resolveFromCwd(env.SCHEDULE_SEED_PDF ?? "data/seed/anul_i_semestrul_i-9.pdf"),
-    imagePdfPath: resolveFromCwd("seed/anul_i_semestrul_i-9.pdf"),
+    pdfPath: resolveFromCwd(seedEnv(env, courseYear, "SCHEDULE_SEED_PDF") ?? `data/seed/${bundled.fileName}`),
+    // Fixed in-image location: the Dockerfile copies data/seed to /app/seed so the seed
+    // survives a mounted (initially empty) volume over /app/data. Deliberately not derived
+    // from the override above, which points at the writable data directory.
+    imagePdfPath: resolveFromCwd(`seed/${bundled.fileName}`),
     originalUrl,
     mirrorUrl,
-    // A custom seed must bring its own hash: the default only describes the default file.
+    // A custom seed must bring its own hash: the bundled one only describes the bundled file.
     sha256:
-      env.SCHEDULE_SEED_PDF_SHA256 ??
-      (originalUrl === DEFAULT_SEED_PDF_URL && mirrorUrl === DEFAULT_SEED_PDF_MIRROR_URL
-        ? DEFAULT_SEED_PDF_SHA256
-        : ""),
+      seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_SHA256") ??
+      (originalUrl === bundled.originalUrl && mirrorUrl === defaultMirrorUrl ? bundled.sha256 : ""),
   };
 }
 
 /** Every course this application knows how to serve. */
 function catalog(env: NodeJS.ProcessEnv): readonly CourseDefinition[] {
   return [
-    { year: 1, roman: "I", label: "Anul I", seed: anulISeed(env) },
-    // No bundled Anul II PDF has been verified, so Anul II has no cold-start fallback.
-    { year: 2, roman: "II", label: "Anul II", seed: null },
+    { year: 1, roman: "I", label: "Anul I", seed: seedFor(env, 1) },
+    { year: 2, roman: "II", label: "Anul II", seed: seedFor(env, 2) },
   ];
 }
 

@@ -67,8 +67,8 @@ every SCHEDULE_REFRESH_MINUTES (default 30) + once at startup
   │        ├─ ok ─▶ atomic replace: tmp file → fsync → rename  (+ row in PostgreSQL history)
   │        └─ fail ─▶ keep previous schedule, store last_error, result = "rejected"
   │
-  ├─ on cold start with no cache and no network ─▶ parse that course's bundled real FCIM PDF
-  │    (source_kind = "seed"); a course without a seed stays unavailable and reports the failure
+  ├─ on cold start with no cache and no network ─▶ parse that course's own bundled real FCIM
+  │    PDF (source_kind = "seed"); a course without a seed stays unavailable and reports why
   │    └─ if only the remote mirror exists, require its configured SHA-256 before parsing
   │
   └─ persisted seed only + demonstrably newer same-context packaged seed
@@ -84,10 +84,12 @@ stricter than automatic discovery: exact host `fcim.utm.md`, HTTPS, and
 Every candidate schedule — live, Wayback, authenticated `manual`, packaged seed, image seed,
 repository mirror seed and seed promotion — passes the same gate: `metadata.course_year` must equal
 the course year the update was requested for, or it is rejected and nothing is installed. Storage
-repeats the check before writing, so no path can put one course's document in another's slot. Only
-Anul I ships a verified seed; a cold start for a course without one therefore keeps its storage
-empty and reports the discovery failure together with the reason, instead of silently serving
-another year's timetable. The parsed course year comes from the PDF's own title
+repeats the check before writing, so no path can put one course's document in another's slot. Each
+course ships its own verified seed under `data/seed/`, described by its own per-course settings
+(`SCHEDULE_SEED_PDF[_<year>]` and friends), so a cold start behind a blocked source serves that
+course's last published timetable; a course whose seed slot holds the wrong document — or nothing —
+keeps its storage empty and reports the reason, instead of silently serving another year's
+timetable. The parsed course year comes from the PDF's own title
 ("ANUL UNIVERSITAR 2026/2027, ANUL II, SEMESTRUL III"), which also outranks anything discovery
 inferred: a row labelled only by season ("Orar Semestrul de TOAMNĂ") cannot say which semester a
 given course year is in, so it is used only when the document carries no title. Discovery derives

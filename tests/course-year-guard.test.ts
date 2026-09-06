@@ -20,8 +20,12 @@ import type { Schedule } from "@/lib/models";
 const SEED_HASH = "52e7f14be27a996e17d0614c1f9fe769d63bdf76876fce6d4fc60f026bf8c015";
 const SEED_MIRROR_URL =
   "https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/anul_i_semestrul_i-9.pdf";
+const ANUL_II_MIRROR_URL =
+  "https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/anul_ii_semestrul_iii-8.pdf";
 const tempDir = await mkdtemp(path.join(tmpdir(), "fcim-course2-"));
 const packagedSeedPath = path.join(tempDir, "packaged-seed.pdf");
+/** Anul II's own packaged seed slot; these tests control what is placed in it. */
+const packagedSeedTwoPath = path.join(tempDir, "packaged-seed-anul-ii.pdf");
 
 process.env.SCHEDULE_COURSES = "1,2";
 process.env.SCHEDULE_DATA_DIR = tempDir;
@@ -31,6 +35,7 @@ process.env.SCHEDULE_ADMIN_TOKEN = "test-admin-token";
 process.env.SCHEDULE_SEED_PDF = packagedSeedPath;
 process.env.SCHEDULE_SEED_PDF_MIRROR_URL = SEED_MIRROR_URL;
 process.env.SCHEDULE_SEED_PDF_SHA256 = SEED_HASH;
+process.env.SCHEDULE_SEED_PDF_2 = packagedSeedTwoPath;
 
 const { NextRequest: NextRequestCtor } = await import("next/server");
 const { courseSeed, SUPPORTED_COURSE_YEARS } = await import("@/lib/courses");
@@ -76,6 +81,7 @@ beforeEach(async () => {
   await Promise.all([
     rm(path.join(tempDir, "courses"), { recursive: true, force: true }),
     rm(packagedSeedPath, { force: true }),
+    rm(packagedSeedTwoPath, { force: true }),
   ]);
   resetStorageCache();
 });
@@ -139,29 +145,31 @@ async function expectNothingServed(courseYear: number) {
 }
 
 describe("wrong-course installation guard", () => {
-  it("serves both courses, and only Anul I has a bundled seed", () => {
+  it("gives each course its own seed, described by its own settings", () => {
     expect([...SUPPORTED_COURSE_YEARS]).toEqual([1, 2]);
-    expect(courseSeed(1)).not.toBeNull();
-    // Anul II has no verified bundled PDF: it must stay unavailable rather than borrow one.
-    expect(courseSeed(2)).toBeNull();
+    // Both courses now ship a verified PDF; neither is describable by the other's knobs.
+    expect(courseSeed(1)?.pdfPath).toBe(packagedSeedPath);
+    expect(courseSeed(2)?.pdfPath).toBe(packagedSeedTwoPath);
+    expect(courseSeed(1)?.mirrorUrl).toBe(SEED_MIRROR_URL);
+    expect(courseSeed(2)?.mirrorUrl).toBe(ANUL_II_MIRROR_URL);
   });
 
-  it("installs nothing for Anul II on a cold start, even with the Anul I seed on disk", async () => {
-    await writeFile(packagedSeedPath, seedBytes);
+  it("installs nothing for Anul II when the Anul I timetable is placed in its seed slot", async () => {
+    // Both courses' packaged files hold Anul I bytes. Course 2's must be refused outright.
+    await Promise.all([writeFile(packagedSeedPath, seedBytes), writeFile(packagedSeedTwoPath, seedBytes)]);
     const calls = stubFetch(blockedDiscovery());
 
     const result = await checkForUpdates(2);
 
     expect(result.course_year).toBe(2);
-    expect(result.outcome).toBe("error");
-    expect(result.message).toMatch(/Cloudflare challenge/);
-    expect(result.message).toMatch(/no bundled seed PDF is available for course year 2/);
-    // The Anul I seed is never even read for Anul II, and the mirror is never contacted.
+    expect(result.outcome).not.toBe("seeded");
+    expect(result.message).toMatch(/course year mismatch/);
+    // Anul II never reaches into Anul I's mirror to look for something usable.
     expect(calls).not.toContain(SEED_MIRROR_URL);
     await expectNothingServed(2);
 
     const state = await getSourceState(2);
-    expect(state).toMatchObject({ last_result: "error", current_pdf_url: null, current_pdf_hash: null });
+    expect(state).toMatchObject({ current_pdf_url: null, current_pdf_hash: null });
     expect(state.last_error).toMatch(/Cloudflare challenge/);
     expect(state.last_error_at).not.toBeNull();
   });
@@ -234,7 +242,9 @@ describe("wrong-course installation guard", () => {
     expect(((await response.json()) as { error: string }).error).toMatch(/unknown course "3"/);
   });
 
-  it("keeps the Anul I seed path working while Anul II stays unavailable", async () => {
+  it("keeps the Anul I seed path working when Anul II has nothing to install", async () => {
+    // Only Anul I's slot is filled here (production ships both — see seed-cold-start), so
+    // Anul II must fail on its own rather than reaching for what Anul I has.
     await writeFile(packagedSeedPath, seedBytes);
     stubFetch(blockedDiscovery());
 

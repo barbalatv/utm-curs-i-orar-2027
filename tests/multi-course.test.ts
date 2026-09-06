@@ -46,7 +46,8 @@ const sourceRoute = (await import("@/app/api/source/route")).GET;
 
 const PAGE_FIXTURE = path.join(__dirname, "fixtures", "orar-page-autumn-2026.html");
 const ANUL_I_PDF = path.join(__dirname, "..", "data", "seed", "anul_i_semestrul_i-9.pdf");
-const ANUL_II_PDF = path.join(__dirname, "fixtures", "anul_ii_semestrul_iii-8.pdf");
+/** The Anul II timetable now lives in data/seed: it is both the cold-start fallback and this fixture. */
+const ANUL_II_PDF = path.join(__dirname, "..", "data", "seed", "anul_ii_semestrul_iii-8.pdf");
 const PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
 const ANUL_I_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf";
 const ANUL_II_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_ii_semestrul_iii-8.pdf";
