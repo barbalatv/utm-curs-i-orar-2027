@@ -11,7 +11,7 @@ import { errorMessage, getLogger } from "@/lib/logger";
 import type { Schedule, ScheduleMetadata, SourceState } from "@/lib/models";
 import { parsePdf, sha256, type Provenance } from "@/lib/parser";
 import { validateSchedule } from "@/lib/parser/validator";
-import { discoverPdf, type DiscoveredPdf } from "@/lib/source/discovery";
+import { discoverPdf, type DiscoveredPdf, type SemesterSource } from "@/lib/source/discovery";
 import {
   fetchOfficialTimetablePdf,
   fetchPdf,
@@ -50,6 +50,7 @@ interface PdfUpdateSource {
   extraHosts?: string[];
   academicYear?: string | null;
   semester?: string | null;
+  semesterSource?: SemesterSource | null;
   parityNote?: string | null;
 }
 
@@ -144,6 +145,7 @@ async function runAutomaticCheck(options: { force?: boolean }): Promise<CheckRes
         extraHosts: kind === "wayback" ? [config.waybackHost] : [],
         academicYear: pdf.academic_year,
         semester: pdf.semester,
+        semesterSource: pdf.semester_source,
         parityNote: pdf.parity_note,
       },
       { force: options.force, mode: "automatic", startedAt },
@@ -161,8 +163,7 @@ async function runAutomaticCheck(options: { force?: boolean }): Promise<CheckRes
 
     if (!(await getCurrentSchedule())) {
       try {
-        const seeded = await seedFromBundledPdf();
-        if (seeded) return seeded;
+        return await seedFromBundledPdf();
       } catch (seedError) {
         const fallbackMessage = `seed fallback failed: ${errorMessage(seedError)}`;
         const combinedMessage = `${message}; ${fallbackMessage}`;
@@ -276,6 +277,7 @@ async function updateFromPdfSource(
     last_modified: resource.lastModified,
     academic_year: source.academicYear,
     semester: source.semester,
+    semester_source: source.semesterSource,
   };
   if (staleParser) {
     log.info("re-parsing the cached PDF with the new parser", {
@@ -384,6 +386,23 @@ async function parseAndApply(bytes: Uint8Array, provenance: Provenance, current:
   return { result: built.result, schedule: built.schedule };
 }
 
+/**
+ * One deployment serves exactly one course year (SCHEDULE_COURSE_YEAR). A parsed
+ * schedule that belongs to another one — the bundled Anul I seed on an Anul II
+ * deployment, say — must never be installed, however healthy it looks otherwise.
+ * This is the single gate every candidate passes: live, wayback, manual, packaged
+ * seed, image seed, repository mirror seed and seed promotion alike.
+ */
+function courseYearMismatch(schedule: Schedule): string | null {
+  const parsed = schedule.metadata.course_year;
+  if (parsed === config.courseYear) return null;
+  const title = schedule.metadata.pdf_title;
+  return (
+    `course year mismatch: the PDF belongs to course year ${parsed}` +
+    `${title ? ` ("${title}")` : ""}, but this deployment serves course year ${config.courseYear}`
+  );
+}
+
 async function buildValidatedSchedule(
   bytes: Uint8Array,
   provenance: Provenance,
@@ -396,6 +415,16 @@ async function buildValidatedSchedule(
     const message = `parser failed: ${errorMessage(error)}`;
     log.error(message, { pdf: provenance.source_pdf_url });
     return { result: { outcome: "rejected", message } };
+  }
+
+  const mismatch = courseYearMismatch(schedule);
+  if (mismatch) {
+    log.error("candidate schedule rejected: wrong course year", {
+      message: mismatch,
+      pdf: provenance.source_pdf_url,
+      source_kind: provenance.source_kind,
+    });
+    return { result: { outcome: "rejected", message: mismatch } };
   }
 
   const validation = validateSchedule(schedule, { previousLessonCount: current?.lessons.length ?? null });
@@ -561,8 +590,12 @@ function verifySeedMirrorHash(bytes: Uint8Array): void {
   }
 }
 
-/** Last resort for a cold start without network: a real, previously published FCIM PDF. */
-async function seedFromBundledPdf(): Promise<CheckResult | null> {
+/**
+ * Last resort for a cold start without network: a real, previously published FCIM PDF.
+ * Throws when no seed can be installed, so the caller reports the failure instead of
+ * appearing healthy; storage is left untouched in that case.
+ */
+async function seedFromBundledPdf(): Promise<CheckResult> {
   const bundled = await readBundledSeed();
   let bytes = bundled?.bytes ?? null;
   if (!bytes) {
@@ -592,7 +625,7 @@ async function seedFromBundledPdf(): Promise<CheckResult | null> {
     },
     null,
   );
-  if (applied.result.outcome !== "updated" || !applied.schedule) return null;
+  if (applied.result.outcome !== "updated" || !applied.schedule) throw new Error(applied.result.message);
   await saveSourceState({
     current_pdf_url: config.seedPdfOriginalUrl,
     current_pdf_hash: applied.schedule.metadata.source_pdf_hash,

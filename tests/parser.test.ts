@@ -317,6 +317,35 @@ describe("test_parser_validation", () => {
   });
 });
 
+describe("semester provenance precedence", () => {
+  /**
+   * The autumn row on the schedule page is labelled by season only, so discovery has to
+   * infer the semester number from the course year. The document itself states it, and a
+   * document always describes itself better than the page that links to it.
+   */
+  it("keeps the semester printed in the PDF over a conflicting inferred one", async () => {
+    const { schedule } = await parsePdf(pdfBytes, {
+      ...provenance,
+      academic_year: "2026/2027",
+      semester: "Semestrul I",
+      semester_source: "inferred",
+    });
+    expect(schedule.metadata.pdf_title).toBe("ANUL UNIVERSITAR 2025/2026, ANUL I, SEMESTRUL II");
+    expect(schedule.metadata.semester).toBe("Semestrul II");
+    expect(schedule.metadata.academic_year).toBe("2025/2026");
+    expect(schedule.metadata.course_year).toBe(1);
+  });
+
+  it("keeps the semester printed in the PDF over a conflicting explicit one", async () => {
+    const { schedule } = await parsePdf(pdfBytes, {
+      ...provenance,
+      semester: "Semestrul IV",
+      semester_source: "explicit",
+    });
+    expect(schedule.metadata.semester).toBe("Semestrul II");
+  });
+});
+
 describe("test_merged_lectures_reach_every_group", () => {
   it("hands the lecture drawn across a block of columns to every one of those groups", () => {
     const { schedule } = seedArtifacts;

@@ -63,7 +63,9 @@ Debugging and stuff can be found [here](docs/debugging.md ).
   page-discovery fallback. An archive snapshot from an older academic year is rejected instead of
   being presented as current. If every network source fails and no cache exists, the bundled seed
   remains the last resort; its remote mirror is accepted only when its SHA-256 matches the configured
-  official seed. A newer packaged seed may also promote an older persisted seed from the
+  official seed, and any seed whose parsed course year differs from `SCHEDULE_COURSE_YEAR` is refused
+  outright — an Anul II deployment reports the failure rather than serving Anul I data. A newer
+  packaged seed may also promote an older persisted seed from the
   exact same academic context, but never live/Wayback/admin-recovered data. Operators can invoke an
   authenticated explicit official-PDF refresh when page discovery is blocked. This does not bypass
   Cloudflare; if the runtime is also challenged for the PDF, the request fails and last-known-good

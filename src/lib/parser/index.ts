@@ -25,6 +25,8 @@ export interface Provenance {
   last_modified?: string | null;
   academic_year?: string | null;
   semester?: string | null;
+  /** How the caller obtained `semester`; see `resolveSemester`. */
+  semester_source?: "explicit" | "inferred" | null;
 }
 
 export interface ParseArtifacts {
@@ -68,8 +70,9 @@ export async function parsePdf(pdfBytes: Uint8Array, provenance: Provenance): Pr
   if (uncertain > 0) warnings.push(`${uncertain} lessons flagged as uncertain`);
 
   const metadata: ScheduleMetadata = {
-    academic_year: provenance.academic_year ?? titleInfo.academicYear,
-    semester: provenance.semester ?? titleInfo.semester,
+    // The title printed inside the document describes the document; provenance only fills gaps.
+    academic_year: titleInfo.academicYear ?? provenance.academic_year ?? null,
+    semester: resolveSemester(titleInfo.semester, provenance),
     course_year: titleInfo.courseYear ?? config.courseYear,
     source_page_url: provenance.source_page_url,
     source_pdf_url: provenance.source_pdf_url,
@@ -101,6 +104,23 @@ export function sha256(bytes: Uint8Array): string {
 
 function compareLessons(a: Schedule["lessons"][number], b: Schedule["lessons"][number]): number {
   return a.geometry.y0 - b.geometry.y0 || a.geometry.x0 - b.geometry.x0;
+}
+
+/**
+ * Semester precedence, strongest first:
+ *   1. the title printed inside the PDF ("... ANUL II, SEMESTRUL III");
+ *   2. a semester printed next to the discovered document/link;
+ *   3. the course-year + season inference discovery falls back to;
+ *   4. unknown.
+ * A season-only label ("Orar Semestrul de TOAMNĂ") says nothing about the course
+ * year, so an inference from it must never overwrite what the document states.
+ */
+function resolveSemester(fromTitle: string | null, provenance: Provenance): string | null {
+  const discovered = provenance.semester ?? null;
+  const inferred = provenance.semester_source === "inferred";
+  const fromDocument = inferred ? null : discovered;
+  const fromSeason = inferred ? discovered : null;
+  return fromTitle ?? fromDocument ?? fromSeason ?? null;
 }
 
 const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8 };

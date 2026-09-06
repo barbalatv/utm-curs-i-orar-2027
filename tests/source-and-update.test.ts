@@ -17,7 +17,7 @@ process.env.SCHEDULE_SEED_PDF_MIRROR_URL = SEED_MIRROR_URL;
 process.env.SCHEDULE_SEED_PDF_SHA256 = NEW_SEED_HASH;
 
 const { NextRequest: NextRequestCtor } = await import("next/server");
-const { discoverPdf } = await import("@/lib/source/discovery");
+const { discoverPdf, semesterForSeason } = await import("@/lib/source/discovery");
 const { pdfRevisionFromUrl } = await import("@/lib/source/revision");
 const { isAllowedSourceUrl, isOfficialTimetablePdfUrl, fetchPdf, SourceFetchError } =
   await import("@/lib/source/downloader");
@@ -181,6 +181,8 @@ describe("test_schedule_page_discovery", () => {
     expect(found.link_text).toMatch(/^Anul I\b/);
     expect(found.academic_year).toBe("2025/2026");
     expect(found.semester).toBe("Semestrul II");
+    // The link itself reads "Anul I semestrul II"; nothing had to be inferred.
+    expect(found.semester_source).toBe("explicit");
     expect(found.section_title).toMatch(/Ciclul I, Licență/);
     expect(found.parity_note).toMatch(/Prima săptămână/);
   });
@@ -188,10 +190,64 @@ describe("test_schedule_page_discovery", () => {
   it("resolves other course years without touching Anul I", () => {
     expect(discoverPdf(pageHtml, 2, SPRING_2026).pdf_url).toMatch(/anul_ii_/);
     expect(discoverPdf(pageHtml, 3, SPRING_2026).pdf_url).toMatch(/anul_iii_/);
+    expect(discoverPdf(pageHtml, 2, SPRING_2026).semester).toBe("Semestrul IV");
+    expect(discoverPdf(pageHtml, 3, SPRING_2026).semester).toBe("Semestrul VI");
   });
 
   it("fails loudly when the section is missing", () => {
     expect(() => discoverPdf("<html><body><p>nothing</p></body></html>")).toThrow(/not found/);
+  });
+});
+
+describe("semester derived from a season-only row label", () => {
+  const AUTUMN_2026 = new Date("2026-09-15T12:00:00.000Z");
+  const SPRING_2027 = new Date("2027-03-15T12:00:00.000Z");
+  const UPLOADS = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09";
+
+  /**
+   * How FCIM actually publishes the timetable: the row names the season, the link
+   * names only the course year. The semester number has to come from both.
+   */
+  function seasonPage(linkText = "Anul II"): string {
+    const title = "Ciclul I, Licență - învățământ cu frecvență";
+    const row = (season: string, file: string) =>
+      `<tr><td>Orar Semestrul de ${season} a.u.2026/2027</td>` +
+      `<td><a href="${UPLOADS}/${file}">${linkText}</a></td></tr>`;
+    return (
+      `<html><body><div class="togglecontainer"><p data-title="${title}">${title}</p><table><tbody>` +
+      `${row("TOAMNĂ", "autumn.pdf")}${row("PRIMĂVARĂ", "spring.pdf")}</tbody></table></div></body></html>`
+    );
+  }
+
+  it.each([
+    [1, "Anul I", AUTUMN_2026, "autumn.pdf", "Semestrul I"],
+    [1, "Anul I", SPRING_2027, "spring.pdf", "Semestrul II"],
+    [2, "Anul II", AUTUMN_2026, "autumn.pdf", "Semestrul III"],
+    [2, "Anul II", SPRING_2027, "spring.pdf", "Semestrul IV"],
+  ])("maps course year %s to %s", (courseYear, linkText, now, file, expected) => {
+    const found = discoverPdf(seasonPage(linkText), courseYear, now);
+    expect(found.pdf_url).toBe(`${UPLOADS}/${file}`);
+    expect(found.semester).toBe(expected);
+    expect(found.semester_source).toBe("inferred");
+  });
+
+  it("keeps the arithmetic generic beyond the years the app ships with", () => {
+    expect(semesterForSeason(3, "autumn")).toBe("Semestrul V");
+    expect(semesterForSeason(3, "spring")).toBe("Semestrul VI");
+    expect(semesterForSeason(5, "autumn")).toBe("Semestrul IX");
+    expect(semesterForSeason(6, "spring")).toBe("Semestrul XII");
+  });
+
+  it("prefers a semester printed on the link over the one the season implies", () => {
+    const title = "Ciclul I, Licență - învățământ cu frecvență";
+    const page =
+      `<html><body><div class="togglecontainer"><p data-title="${title}">${title}</p><table><tbody>` +
+      `<tr><td>Orar Semestrul de TOAMNĂ a.u.2026/2027</td>` +
+      `<td><a href="${UPLOADS}/anul_ii_semestrul_iii-8.pdf">Anul II semestrul III</a></td>` +
+      `</tr></tbody></table></div></body></html>`;
+    const found = discoverPdf(page, 2, AUTUMN_2026);
+    expect(found.semester).toBe("Semestrul III");
+    expect(found.semester_source).toBe("explicit");
   });
 });
 
@@ -620,6 +676,24 @@ describe("automatic update queueing", () => {
 });
 
 describe("test_remote_seed_bootstrap", () => {
+  it("installs the packaged seed on a cold start when discovery is unavailable", async () => {
+    // The counterpart of the wrong-course guard: an Anul I deployment, an Anul I seed.
+    await writeFile(packagedSeedPath, newSeedBytes);
+    resetStorageCache();
+    const calls = stubFetch(cloudflareDiscoveryRoutes());
+
+    const result = await checkForUpdates();
+
+    expect(result).toMatchObject({ outcome: "seeded", pdf_url: NEW_SEED_URL, source_pdf_hash: NEW_SEED_HASH });
+    const schedule = await getCurrentSchedule();
+    expect(schedule?.metadata).toMatchObject({ course_year: 1, source_kind: "seed", source_pdf_hash: NEW_SEED_HASH });
+    expect(schedule?.groups).toHaveLength(41);
+    expect(schedule?.lessons).toHaveLength(449);
+    // A seed on disk means the repository mirror is never contacted.
+    expect(calls.some((call) => call.url === SEED_MIRROR_URL)).toBe(false);
+    expect((await getSourceState())).toMatchObject({ last_result: "seeded", current_pdf_url: NEW_SEED_URL });
+  });
+
   it("loads the repository mirror when the live sources and local seed are unavailable", async () => {
     await Promise.all([
       rm(path.join(tempDir, "current_schedule.json"), { force: true }),
@@ -639,6 +713,7 @@ describe("test_remote_seed_bootstrap", () => {
     const schedule = await getCurrentSchedule();
     expect(schedule?.metadata.source_kind).toBe("seed");
     expect(schedule?.metadata.source_pdf_hash).toBe(NEW_SEED_HASH);
+    expect(schedule?.metadata.course_year).toBe(1);
     expect(schedule?.groups).toHaveLength(41);
     expect(schedule?.lessons).toHaveLength(449);
   });

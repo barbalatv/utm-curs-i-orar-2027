@@ -16,8 +16,8 @@ every SCHEDULE_REFRESH_MINUTES (default 30) + once at startup
   │        │
   │        ├─ 304 or same SHA-256 (and same parser version) ─▶ record "unchanged", done
   │        ▼
-  │  parse ─▶ validate (≥5 groups, all 5 days, ≥30 lessons, times, geometry,
-  │           ≤40 % drop vs previous version, uncertain ratio)
+  │  parse ─▶ course year == SCHEDULE_COURSE_YEAR ─▶ validate (≥5 groups, all 5 days,
+  │           ≥30 lessons, times, geometry, ≤40 % drop vs previous version, uncertain ratio)
   │        │
   │        ├─ ok ─▶ atomic replace: tmp file → fsync → rename  (+ row in PostgreSQL history)
   │        └─ fail ─▶ keep previous schedule, store last_error, result = "rejected"
@@ -34,6 +34,17 @@ URL when page discovery is unavailable. It joins the same download → hash → 
 atomic-replace pipeline; it is not a second parser or storage path. Its URL policy is deliberately
 stricter than automatic discovery: exact host `fcim.utm.md`, HTTPS, and
 `/wp-content/uploads/sites/24/YYYY/MM/*.pdf`, rechecked on every redirect.
+
+One deployment serves exactly one course year. Every candidate schedule — live, Wayback,
+authenticated `manual`, packaged seed, image seed, repository mirror seed and seed promotion —
+passes the same gate: `metadata.course_year` must equal `SCHEDULE_COURSE_YEAR`, or it is rejected
+and nothing is installed. A cold start whose only seed belongs to another course year therefore
+keeps storage empty and reports the discovery failure together with the mismatch, instead of
+silently serving another year's timetable. The parsed course year comes from the PDF's own title
+("ANUL UNIVERSITAR 2026/2027, ANUL II, SEMESTRUL III"), which also outranks anything discovery
+inferred: a row labelled only by season ("Orar Semestrul de TOAMNĂ") cannot say which semester a
+given course year is in, so it is used only when the document carries no title. Discovery derives
+that fallback from the course year itself — autumn = semester 2N-1, spring = 2N.
 
 Seed promotion is intentionally asymmetric. A validated packaged seed may replace only a persisted
 `source_kind = "seed"` whose parsed academic year, semester, and course year match, and whose
