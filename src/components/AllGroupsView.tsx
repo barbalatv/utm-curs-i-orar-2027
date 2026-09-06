@@ -34,9 +34,10 @@ export function AllGroupsView({ groups, days, timeSlots, lessons, today, week }:
   }, [lessons, day]);
 
   return (
-    // Pinned under the app bar with its own stacking context: the sticky table headers
-    // scroll inside this box instead of riding up over the page chrome.
-    <section aria-label="Toate grupele" className="sticky top-14 z-0 space-y-2">
+    // Own stacking context, so the sticky table headers scroll inside this box instead of riding
+    // up over the page chrome. From md up it is also pinned under the app bar; on phones it stays
+    // in flow, because there the matrix plus the status footer cannot both fit on screen.
+    <section aria-label="Toate grupele" className="relative z-0 space-y-2 md:sticky md:top-14">
       <div className="-mx-4 flex items-center gap-3 bg-slate-50 px-4 py-2 sm:mx-0 sm:px-0">
         <nav aria-label="Ziua" className="flex gap-1 overflow-x-auto">
           {days.map((item) => (
@@ -57,8 +58,11 @@ export function AllGroupsView({ groups, days, timeSlots, lessons, today, week }:
         </span>
       </div>
       {/* Short enough that the page never scrolls further than this section can stay pinned,
-          otherwise the day tabs slide up under the app bar at the bottom of the page. */}
-      <div className="max-h-[calc(100dvh-15rem)] overflow-auto rounded-xl border border-slate-200 bg-white md:max-h-[calc(100dvh-12rem)]">
+          otherwise the day tabs slide up under the app bar at the bottom of the page. While
+          pinned, 12rem covers the app bar, the day tabs, the gap above the status footer and the
+          page padding; the footer's own height comes from --status-footer-height (set in
+          ScheduleApp), so it always lands below the matrix instead of on top of its last row. */}
+      <div className="max-h-[calc(100dvh-15rem)] overflow-auto rounded-xl border border-slate-200 bg-white md:max-h-[calc(100dvh-12rem-var(--status-footer-height,0px))]">
         <table className="border-separate border-spacing-0 text-left text-xs">
           <thead>
             <tr>

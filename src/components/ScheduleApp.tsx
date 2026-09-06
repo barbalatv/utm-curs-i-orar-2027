@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Ref } from "react";
 import type { DayName, Lesson } from "@/lib/models";
 import type { ScheduleResponse, StatusResponse } from "@/lib/client/types";
 import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
@@ -34,6 +34,21 @@ export function ScheduleApp() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [now, setNow] = useState(() => localNow());
   const [tick, setTick] = useState(() => Date.now());
+  const [footerSpace, setFooterSpace] = useState(0);
+
+  // The pinned "Toate grupele" matrix sizes itself against the viewport, so it has to know how
+  // much room the status footer needs below it - otherwise the footer rides up over the last
+  // table row at the bottom of the page. The height is measured because the footer reflows with
+  // the breakpoint (4/2/1 columns) and with its own text.
+  const measureFooter = useCallback((node: HTMLElement | null) => {
+    if (!node) return;
+    const observer = new ResizeObserver(() => setFooterSpace(node.getBoundingClientRect().height));
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      setFooterSpace(0);
+    };
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -145,7 +160,7 @@ export function ScheduleApp() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 pb-24 pt-4 md:pb-10">
+      <main className="mx-auto max-w-7xl px-4 pb-24 pt-4 md:pb-10" style={{ "--status-footer-height": `${footerSpace}px` } as CSSProperties}>
         {loadError && !schedule && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             <p className="font-semibold">Orarul nu este disponibil momentan.</p>
@@ -224,7 +239,7 @@ export function ScheduleApp() {
               />
             )}
 
-            <StatusFooter status={status} week={week} />
+            <StatusFooter status={status} week={week} ref={measureFooter} />
           </>
         )}
       </main>
@@ -339,13 +354,13 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
   );
 }
 
-function StatusFooter({ status, week }: { status: StatusResponse | null; week: WeekInfo }) {
+function StatusFooter({ status, week, ref }: { status: StatusResponse | null; week: WeekInfo; ref?: Ref<HTMLElement> }) {
   if (!status?.schedule) return null;
   const { schedule, source } = status;
   return (
-    // Above the pinned "Toate grupele" matrix, which is painted lower than its place in
-    // flow and would otherwise cover this.
-    <footer className="relative z-10 mt-10 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+    // The pinned "Toate grupele" matrix leaves room for this footer (see --status-footer-height);
+    // z-10 keeps the footer on top for the frame it takes to re-measure after a resize.
+    <footer ref={ref} className="relative z-10 mt-10 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Actualizat</p>
         <p className="font-medium text-slate-900">{formatDateTime(schedule.downloaded_at)}</p>
