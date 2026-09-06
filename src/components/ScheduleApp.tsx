@@ -145,6 +145,15 @@ export function ScheduleApp() {
         </div>
       </header>
 
+      <style>
+      main {
+        background: center right no-repeat fixed url("https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Flocus.md%2Fassets%2Fimages%2Fproducts%2F1781%2F515873763-24535213046085325-4650634204018459424-n.jpg&f=1&nofb=1&ipt=5fa46cade59b3fdbe4055a38db6e19575638ac5e6011691cccaf9959ecb09962") #FFF
+      }
+      main > [aria-labelledby="pick-title"]section,
+      main > [aria-label="Toate grupele"]section,
+      main > .grid > .bg-white { opacity: 0.9; }
+      </style>
+
       <main className="mx-auto max-w-7xl px-4 pb-24 pt-4 md:pb-10">
         {loadError && !schedule && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
