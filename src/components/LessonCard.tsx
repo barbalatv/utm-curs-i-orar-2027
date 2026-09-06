@@ -51,7 +51,7 @@ export function LessonCard({ lesson, status = "upcoming", compact = false, focus
         {lesson.room && (
           <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">
             <span aria-hidden="true">📍</span>
-            {Спортзал}
+            {"Спортзал"}
           </span>
         )}
         <span className={`rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${TYPE_STYLE[lesson.lesson_type]}`}>{TYPE_LABEL[lesson.lesson_type]}</span>
