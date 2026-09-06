@@ -12,8 +12,9 @@ import { parsePdf, sha256, type ParseArtifacts } from "@/lib/parser";
 import type { Grid } from "@/lib/parser/geometry";
 
 const FIXTURE = path.join(__dirname, "fixtures", "anul_i_semestrul_ii-1.pdf");
-const SEED = path.join(__dirname, "..", "data", "seed", "anul_i_semestrul_i-5.pdf");
+const SEED = path.join(__dirname, "..", "data", "seed", "anul_i_semestrul_i-9.pdf");
 const REGRESSION = path.join(__dirname, "fixtures", "expected-spring-2026.json");
+const SEED_HASH = "52e7f14be27a996e17d0614c1f9fe769d63bdf76876fce6d4fc60f026bf8c015";
 
 const provenance = {
   source_page_url: "https://fcim.utm.md/procesul-de-studii/orar/",
@@ -26,12 +27,23 @@ let pdfBytes: Uint8Array;
 let page: PageExtraction;
 let grid: Grid;
 let artifacts: ParseArtifacts;
+let seedBytes: Uint8Array;
+let seedArtifacts: ParseArtifacts;
 
 beforeAll(async () => {
-  pdfBytes = new Uint8Array(await readFile(FIXTURE));
+  const [fixtureBytes, bundledBytes] = await Promise.all([readFile(FIXTURE), readFile(SEED)]);
+  pdfBytes = new Uint8Array(fixtureBytes);
+  seedBytes = new Uint8Array(bundledBytes);
   [page] = await extractPages(pdfBytes);
   grid = buildGrid(page.rects);
-  artifacts = await parsePdf(pdfBytes, provenance);
+  [artifacts, seedArtifacts] = await Promise.all([
+    parsePdf(pdfBytes, provenance),
+    parsePdf(seedBytes, {
+      ...provenance,
+      source_pdf_url: "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf",
+      source_kind: "seed",
+    }),
+  ]);
 });
 
 describe("pdf extraction", () => {
@@ -210,8 +222,8 @@ describe("test_parser_validation", () => {
 });
 
 describe("test_merged_lectures_reach_every_group", () => {
-  it("hands the lecture drawn across a block of columns to every one of those groups", async () => {
-    const { schedule } = await parsePdf(new Uint8Array(await readFile(SEED)), provenance);
+  it("hands the lecture drawn across a block of columns to every one of those groups", () => {
+    const { schedule } = seedArtifacts;
     const lecture = schedule.lessons.find(
       (lesson) => lesson.day === "Luni" && lesson.start_time === "11:30" && lesson.groups.includes("SI-261"),
     );
@@ -231,8 +243,8 @@ describe("test_merged_lectures_reach_every_group", () => {
     expect(schedule.lessons.filter((lesson) => lesson.uncertain)).toHaveLength(0);
   });
 
-  it("reads the room a lesson shares, the named auditorium and sports hall", async () => {
-    const { schedule } = await parsePdf(new Uint8Array(await readFile(SEED)), provenance);
+  it("reads the room a lesson shares, the named auditorium and sports hall", () => {
+    const { schedule } = seedArtifacts;
     const byRaw = (raw: string) => schedule.lessons.find((lesson) => lesson.raw_text === raw);
 
     const split = byRaw("Criptografie | Reșetnicov M. | D02/04");
@@ -243,6 +255,19 @@ describe("test_merged_lectures_reach_every_group", () => {
 
     const sports = byRaw("Educație fizică | Sala sportivă");
     expect(sports).toMatchObject({ lesson_type: "physical_education", room: "Sala sportivă", uncertain: false });
+  });
+});
+
+describe("autumn 2026 packaged-seed regression", () => {
+  it("parses and validates the verified -9.pdf fixture", () => {
+    const { schedule } = seedArtifacts;
+    expect(sha256(seedBytes)).toBe(SEED_HASH);
+    expect(schedule.metadata.source_pdf_hash).toBe(SEED_HASH);
+    expect(schedule.metadata.source_pdf_url).toMatch(/anul_i_semestrul_i-9\.pdf$/);
+    expect(schedule.groups).toHaveLength(41);
+    expect(schedule.lessons).toHaveLength(449);
+    expect(schedule.lessons.filter((lesson) => lesson.uncertain)).toHaveLength(0);
+    expect(validateSchedule(schedule).ok).toBe(true);
   });
 });
 

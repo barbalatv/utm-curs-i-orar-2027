@@ -8,6 +8,11 @@ import { DEFAULT_ODD_WEEK_ANCHOR } from "@/lib/client/time";
 const MINUTE_MS = 60_000;
 const MEGABYTE = 1024 * 1024;
 const DEFAULT_SCHEDULE_PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
+const DEFAULT_SEED_PDF_URL =
+  "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf";
+const DEFAULT_SEED_PDF_MIRROR_URL =
+  "https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/anul_i_semestrul_i-9.pdf";
+const DEFAULT_SEED_PDF_SHA256 = "52e7f14be27a996e17d0614c1f9fe769d63bdf76876fce6d4fc60f026bf8c015";
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -41,6 +46,13 @@ function wordpressApiUrl(pageUrl: string): string {
 }
 
 const schedulePageUrl = process.env.SCHEDULE_PAGE_URL ?? DEFAULT_SCHEDULE_PAGE_URL;
+const seedPdfOriginalUrl = process.env.SCHEDULE_SEED_PDF_URL ?? DEFAULT_SEED_PDF_URL;
+const seedPdfMirrorUrl = process.env.SCHEDULE_SEED_PDF_MIRROR_URL ?? DEFAULT_SEED_PDF_MIRROR_URL;
+const seedPdfSha256 =
+  process.env.SCHEDULE_SEED_PDF_SHA256 ??
+  (seedPdfOriginalUrl === DEFAULT_SEED_PDF_URL && seedPdfMirrorUrl === DEFAULT_SEED_PDF_MIRROR_URL
+    ? DEFAULT_SEED_PDF_SHA256
+    : "");
 
 export const config = {
   /** Source of truth: the official FCIM schedule page. PDF URLs are discovered from it. */
@@ -62,23 +74,21 @@ export const config = {
     "Mozilla/5.0 (compatible; fcim-schedule-bot/1.0; +https://github.com/fcim-schedule)",
   /** Directory that holds current_schedule.json / metadata.json and the seed PDF. */
   dataDir: path.resolve(/*turbopackIgnore: true*/ process.cwd(), process.env.SCHEDULE_DATA_DIR ?? "data"),
-  /** Bundled real FCIM PDF used only when no cache exists and the network is unavailable. */
+  /** Bundled real FCIM PDF used for cold-start fallback and conservative seed promotion. */
   seedPdfPath: path.resolve(
     /*turbopackIgnore: true*/ process.cwd(),
-    process.env.SCHEDULE_SEED_PDF ?? "data/seed/anul_i_semestrul_i-5.pdf",
+    process.env.SCHEDULE_SEED_PDF ?? "data/seed/anul_i_semestrul_i-9.pdf",
   ),
   /** Container-safe copy kept outside SCHEDULE_DATA_DIR so a mounted cache cannot hide it. */
   imageSeedPdfPath: path.resolve(
     /*turbopackIgnore: true*/ process.cwd(),
-    "seed/anul_i_semestrul_i-5.pdf",
+    "seed/anul_i_semestrul_i-9.pdf",
   ),
-  seedPdfOriginalUrl:
-    process.env.SCHEDULE_SEED_PDF_URL ??
-    "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-5.pdf",
+  seedPdfOriginalUrl,
   /** Public copy of the bundled PDF for hosts that do not preserve image files at runtime. */
-  seedPdfMirrorUrl:
-    process.env.SCHEDULE_SEED_PDF_MIRROR_URL ??
-    "https://raw.githubusercontent.com/barbalatv/utm-curs-i-orar-2027/main/data/seed/anul_i_semestrul_i-5.pdf",
+  seedPdfMirrorUrl,
+  /** Expected bytes for the remote mirror before it may claim the official seed provenance. */
+  seedPdfSha256,
   /** Monday of a week the university counts as odd, as "YYYY-MM-DD". Set it per semester. */
   oddWeekAnchor: process.env.SCHEDULE_ODD_WEEK_ANCHOR ?? DEFAULT_ODD_WEEK_ANCHOR,
   /** Course year served by this deployment ("Anul I"). */

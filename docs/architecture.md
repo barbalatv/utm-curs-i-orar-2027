@@ -22,8 +22,28 @@ every SCHEDULE_REFRESH_MINUTES (default 30) + once at startup
   │        ├─ ok ─▶ atomic replace: tmp file → fsync → rename  (+ row in PostgreSQL history)
   │        └─ fail ─▶ keep previous schedule, store last_error, result = "rejected"
   │
-  └─ on cold start with no cache and no network ─▶ parse bundled real FCIM PDF (source_kind = "seed")
+  ├─ on cold start with no cache and no network ─▶ parse bundled real FCIM PDF (source_kind = "seed")
+  │    └─ if only the remote mirror exists, require its configured SHA-256 before parsing
+  │
+  └─ persisted seed only + demonstrably newer same-context packaged seed
+       └─ parse + validate packaged PDF ─▶ atomically promote seed before discovery
 ```
+
+An authenticated `POST /api/admin/refresh` may supply one explicit official FCIM timetable PDF
+URL when page discovery is unavailable. It joins the same download → hash → parse → validate →
+atomic-replace pipeline; it is not a second parser or storage path. Its URL policy is deliberately
+stricter than automatic discovery: exact host `fcim.utm.md`, HTTPS, and
+`/wp-content/uploads/sites/24/YYYY/MM/*.pdf`, rechecked on every redirect.
+
+Seed promotion is intentionally asymmetric. A validated packaged seed may replace only a persisted
+`source_kind = "seed"` whose parsed academic year, semester, and course year match, and whose
+official publication path has an older month/revision. It never replaces `live`, `wayback`, or
+authenticated `manual` data. Thus deploying an updated image repairs an obsolete persisted seed
+without allowing an older image to roll back a live timetable.
+
+The served schedule provenance and automatic discovery health are separate. An explicit refresh or
+seed promotion updates the schedule URL/hash, while a later Cloudflare discovery error remains a
+truthful error in SourceState and cannot revert the valid schedule.
 
 `data/metadata.json` keeps: current PDF URL, SHA-256, ETag, Last-Modified, last check,
 last success, last error, last result, academic year / semester, parity note.
@@ -44,7 +64,8 @@ week is over, so the schedule already shows the week that starts on Monday.
 
 ```
 ┌────────────────────────────── Next.js process ────────────────────────────────┐
-│ instrumentation.ts ─▶ services/updater.ts (scheduler, mutex, fallback chain)  │
+│ instrumentation.ts ─┐                                                        │
+│ admin/refresh ───────┴─▶ services/updater.ts (queue, scheduler, fallbacks)    │
 │                          │  source/discovery.ts   (cheerio, section → link)   │
 │                          │  source/downloader.ts  (hardened fetch, SSRF guard)│
 │                          ▼                                                    │

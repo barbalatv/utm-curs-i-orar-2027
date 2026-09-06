@@ -9,7 +9,8 @@ a network or parsing error.
 
 - Source of truth: <https://fcim.utm.md/procesul-de-studii/orar/> → section
   *"Ciclul I, Licență - învățământ cu frecvență"* → row *"Orar Semestrul …"* → link **Anul I**.
-- No PDF URL, group list or lesson is hard-coded. Everything comes from the discovered PDF.
+- Automatic discovery does not hard-code a current PDF URL, group list, or lesson. The repository
+  also carries one verified real PDF as a bootstrap/recovery seed.
 
 > **Stack note.** The task brief suggested FastAPI + Vite. This sandbox provides a Next.js runtime,
 > so the *same architecture* is implemented as one deployable Next.js app: TypeScript backend
@@ -47,10 +48,12 @@ Debugging and stuff can be found [here](docs/debugging.md ).
 
 ## Security
 
-- PDF URLs are taken only from the FCIM page; downloads require `https` and an allow-listed host
-  (`fcim.utm.md`, `utm.md`; `web.archive.org` only for the explicit mirror fallback), every
-  redirect hop is re-validated, size/timeout/redirect limits apply, the body must start with `%PDF-`.
-- The public API never accepts a URL. React escapes all PDF-derived text.
+- Automatically discovered PDF URLs require `https` and an allow-listed host (`fcim.utm.md`,
+  `utm.md`; `web.archive.org` only for the archive fallback). The authenticated admin recovery
+  endpoint accepts only exact-host `fcim.utm.md` URLs under
+  `/wp-content/uploads/sites/24/YYYY/MM/*.pdf`; every redirect is checked against that stricter
+  policy. Size/timeout/redirect limits apply and the body must start with `%PDF-`.
+- No unauthenticated endpoint accepts a URL. React escapes all PDF-derived text.
 - Errors are returned as JSON messages; stack traces never reach the client.
 
 ## Known limitations
@@ -59,7 +62,12 @@ Debugging and stuff can be found [here](docs/debugging.md ).
   official read-only WordPress REST endpoint, then uses the public Wayback copy only as a final
   page-discovery fallback. An archive snapshot from an older academic year is rejected instead of
   being presented as current. If every network source fails and no cache exists, the bundled seed
-  remains the last resort; the UI identifies stale or fallback data.
+  remains the last resort; its remote mirror is accepted only when its SHA-256 matches the configured
+  official seed. A newer packaged seed may also promote an older persisted seed from the
+  exact same academic context, but never live/Wayback/admin-recovered data. Operators can invoke an
+  authenticated explicit official-PDF refresh when page discovery is blocked. This does not bypass
+  Cloudflare; if the runtime is also challenged for the PDF, the request fails and last-known-good
+  data remains served.
 - **Lesson type** is only set when the PDF says so (`c.`, `lab`, `sem.`, `Ed. fizică`, `L. …`).
   Most single-group cells in the spring PDF carry no marker → `unknown` (shown as "Tip nespecificat").
 - **Week parity.** Each lesson's parity comes from the half-cell convention (upper = odd, lower =
@@ -88,6 +96,9 @@ Debugging and stuff can be found [here](docs/debugging.md ).
 4. Optionally set `DATABASE_URL` and run `npx drizzle-kit push` once to create `schedule_versions`.
 5. Set `SCHEDULE_ADMIN_TOKEN` to enable `POST /api/admin/refresh`.
 6. Put the container behind HTTPS; `/api/health` is the health check. Run a single replica.
+
+For the authenticated explicit-PDF recovery command and status verification, see
+[Cloudflare discovery failures and recovery](docs/debugging.md#cloudflare-discovery-failures-and-recovery).
 
 ## Project structure
 

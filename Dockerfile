@@ -18,7 +18,7 @@ ENV NODE_ENV=production \
     PORT=8000 \
     HOSTNAME=0.0.0.0 \
     SCHEDULE_DATA_DIR=/app/data \
-    SCHEDULE_SEED_PDF=/app/seed/anul_i_semestrul_i-5.pdf
+    SCHEDULE_SEED_PDF=/app/seed/anul_i_semestrul_i-9.pdf
 RUN groupadd --system app && useradd --system --gid app --home /app app
 COPY --from=builder --chown=app:app /app/.next/standalone ./
 # Next's file tracer omits PDF.js' dynamically imported worker and optional

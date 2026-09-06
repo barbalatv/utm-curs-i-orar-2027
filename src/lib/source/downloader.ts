@@ -34,6 +34,9 @@ export interface ConditionalHeaders {
   lastModified?: string | null;
 }
 
+const OFFICIAL_TIMETABLE_PDF_PATH =
+  /^\/wp-content\/uploads\/sites\/24\/\d{4}\/(?:0[1-9]|1[0-2])\/[^/]+\.pdf$/i;
+
 export function isAllowedSourceUrl(rawUrl: string, extraHosts: string[] = []): boolean {
   let url: URL;
   try {
@@ -47,28 +50,58 @@ export function isAllowedSourceUrl(rawUrl: string, extraHosts: string[] = []): b
   return allowed.some((candidate) => host === candidate || host.endsWith(`.${candidate}`));
 }
 
+/** Strict policy for administrator-supplied recovery URLs. */
+export function isOfficialTimetablePdfUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (/%2f|%5c/i.test(url.pathname)) return false;
+  return (
+    url.protocol === "https:" &&
+    url.hostname.toLowerCase() === "fcim.utm.md" &&
+    url.port === "" &&
+    url.username === "" &&
+    url.password === "" &&
+    url.hash === "" &&
+    OFFICIAL_TIMETABLE_PDF_PATH.test(url.pathname)
+  );
+}
+
 /** Build a Wayback Machine URL that serves the raw archived resource. */
 export function waybackUrl(originalUrl: string): string {
   return `https://${config.waybackHost}/web/2id_/${originalUrl}`;
 }
 
-function assertAllowed(url: string, extraHosts: string[]) {
+function assertAllowed(url: string, extraHosts: string[], urlPolicy?: (candidate: string) => boolean) {
   if (!isAllowedSourceUrl(url, extraHosts)) {
     throw new SourceFetchError(`Refusing to fetch non-allow-listed URL: ${url}`, "blocked");
+  }
+  if (urlPolicy && !urlPolicy(url)) {
+    throw new SourceFetchError(`Refusing URL outside the official FCIM timetable PDF path: ${url}`, "blocked");
   }
 }
 
 /** Fetch with manual redirect handling so every hop is validated against the allow-list. */
 export async function fetchResource(
   url: string,
-  options: { accept: string; conditional?: ConditionalHeaders; extraHosts?: string[]; maxBytes?: number } ,
+  options: {
+    accept: string;
+    conditional?: ConditionalHeaders;
+    extraHosts?: string[];
+    maxBytes?: number;
+    /** Optional stricter policy, re-evaluated before every request/redirect hop. */
+    urlPolicy?: (candidate: string) => boolean;
+  },
 ): Promise<FetchedResource> {
   const extraHosts = options.extraHosts ?? [];
   const maxBytes = options.maxBytes ?? config.maxPdfBytes;
   let currentUrl = url;
 
   for (let hop = 0; hop <= config.maxRedirects; hop += 1) {
-    assertAllowed(currentUrl, extraHosts);
+    assertAllowed(currentUrl, extraHosts, options.urlPolicy);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.httpTimeoutMs);
     const headers: Record<string, string> = {
@@ -88,6 +121,15 @@ export async function fetchResource(
     }
 
     try {
+      const mitigation = response.headers.get("cf-mitigated");
+      if (mitigation) {
+        throw new SourceFetchError(
+          `Cloudflare ${mitigation} response (HTTP ${response.status}) from ${currentUrl}`,
+          "http",
+          response.status,
+        );
+      }
+
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
         if (!location) throw new SourceFetchError(`Redirect without Location from ${currentUrl}`, "http", response.status);
@@ -110,9 +152,7 @@ export async function fetchResource(
       }
 
       if (!response.ok) {
-        const challenge = response.headers.get("cf-mitigated");
-        const detail = challenge ? ` (Cloudflare ${challenge})` : "";
-        throw new SourceFetchError(`HTTP ${response.status} from ${currentUrl}${detail}`, "http", response.status);
+        throw new SourceFetchError(`HTTP ${response.status} from ${currentUrl}`, "http", response.status);
       }
 
       const declared = Number(response.headers.get("content-length") ?? 0);
@@ -198,6 +238,20 @@ export async function fetchWordPressSchedulePage(url: string): Promise<string> {
 
 export async function fetchPdf(url: string, conditional: ConditionalHeaders, extraHosts: string[] = []): Promise<FetchedResource> {
   const resource = await fetchResource(url, { accept: "application/pdf,*/*;q=0.8", conditional, extraHosts });
+  if (!resource.notModified) assertLooksLikePdf(resource);
+  return resource;
+}
+
+/** Fetch an administrator-selected official FCIM timetable PDF without creating a generic proxy. */
+export async function fetchOfficialTimetablePdf(
+  url: string,
+  conditional: ConditionalHeaders = {},
+): Promise<FetchedResource> {
+  const resource = await fetchResource(url, {
+    accept: "application/pdf,*/*;q=0.8",
+    conditional,
+    urlPolicy: isOfficialTimetablePdfUrl,
+  });
   if (!resource.notModified) assertLooksLikePdf(resource);
   return resource;
 }

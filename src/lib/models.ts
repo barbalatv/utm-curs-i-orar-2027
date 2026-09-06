@@ -84,7 +84,7 @@ export const ScheduleMetadataSchema = z.object({
   source_page_url: z.string(),
   source_pdf_url: z.string(),
   source_pdf_hash: z.string(),
-  /** "live" = discovered on fcim.utm.md, "wayback" = archive mirror, "seed" = bundled fallback PDF. */
+  /** "manual" = authenticated explicit official-PDF recovery; other values describe discovery/bootstrap. */
   source_kind: z.enum(["live", "wayback", "seed", "manual"]),
   downloaded_at: z.string(),
   parsed_at: z.string(),
@@ -116,7 +116,7 @@ export const SourceStateSchema = z.object({
   last_success_at: z.string().nullable(),
   last_error: z.string().nullable(),
   last_error_at: z.string().nullable(),
-  /** Result of the most recent check: what happened. */
+  /** Latest automatic discovery/bootstrap result; explicit recovery preserves this diagnostic. */
   last_result: z
     .enum(["updated", "unchanged", "rejected", "error", "seeded", "never"])
     .default("never"),
