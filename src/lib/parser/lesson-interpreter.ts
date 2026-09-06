@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import type { Lesson, LessonType, WeekParity } from "@/lib/models";
 import type { TableCell } from "./cell-builder";
 import { normalizeRoom, normalizeSubgroup, normalizeSubject, normalizeTeacher, cleanText } from "./normalizer";
+import { resolveSubjectAlias } from "./subject-aliases";
 
 /** One room: "606", "606a", "3-3", "5-114", "D01", "D-01", "A03" – but not "A1" (language level). */
 const ROOM_ATOM = String.raw`(?:[A-Z]\s?-?\s?\d{2,3}[a-z]?|\d\s?-\s?\d{1,3}[a-z]?|\d{3}[a-z]?)`;
@@ -26,6 +27,15 @@ const VENUE_ROOM_RE = new RegExp(`^(?:(?:aula|sala|sală)\\s+)?${ROOM_ATOM}(?:\\
 const NAMED_VENUE_RE = /^(?:sal[aă]|aul[aă]|teren(?:ul)?|stadion(?:ul)?)\s+[A-Za-zĂÂÎȘȚăâîșț][A-Za-zĂÂÎȘȚăâîșț\s.-]*$/i;
 const NAME_WORD = "[A-ZĂÂÎȘȚ][a-zăâîșț]+(?:-[A-Za-zĂÂÎȘȚăâîșț][a-zăâîșț]+)?";
 const TEACHER_RE = new RegExp(`^${NAME_WORD}(?: ${NAME_WORD})?\\s+(?:[A-ZĂÂÎȘȚ][a-zăâîșț]{0,2}\\.?|[a-z]\\.)$`);
+/** A few cells put the initial first instead: "P. Russu", "P.Russu". */
+const INITIAL_FIRST_TEACHER_RE = new RegExp(`^[A-ZĂÂÎȘȚ]\\.\\s?${NAME_WORD}$`);
+/**
+ * That same shape spells an abbreviated *subject* far more often than a name: "L. Engleză"
+ * (limba), "C. Fizica" (curs), "T. Web" (tehnologii). Those three initials never introduce a
+ * teacher in these timetables, and missing a teacher is far cheaper than filing a subject as
+ * one – the surname-first form covers every other teacher on the page.
+ */
+const SUBJECT_INITIAL_RE = /^[clt]\s*\./i;
 const SUBGROUP_RE = /(?:\b0\s*[.,]\s*5\s*[,.]?\s*gr\.?|\b05\s*,\s*gr\.?)/i;
 const LONE_MARKER_RE = /^(c|lab|sem|pr|proiect)\.?$/i;
 const PHYS_ED_RE = /^(?:ed\.?|educa[țt]i[ae])\s*fizic[aă](?![a-zăâîșț])/i;
@@ -67,7 +77,9 @@ export function isVenue(text: string): boolean {
 }
 
 export function isTeacher(text: string): boolean {
-  return TEACHER_RE.test(text.trim());
+  const value = text.trim();
+  if (TEACHER_RE.test(value)) return true;
+  return INITIAL_FIRST_TEACHER_RE.test(value) && !SUBJECT_INITIAL_RE.test(value);
 }
 
 /** Split the visual lines of a cell into logical lessons. */
@@ -196,7 +208,9 @@ export function interpretCell(cell: TableCell): Lesson[] {
   segments.forEach((segment, index) => {
     const joinedSubject = segment.subjectLines.length > 0 ? segment.subjectLines.join(" ") : (segment.marker ?? "");
     const { type, subject } = classifyType(joinedSubject, segment.leadingType);
-    const normalizedSubject = normalizeSubject(subject);
+    // The abbreviation is expanded once the class-type prefix is off and the text is
+    // normalised, so the alias table only ever sees the subject itself.
+    const normalizedSubject = resolveSubjectAlias(normalizeSubject(subject), cell.groups);
     const hasSubject = normalizedSubject.length > 0;
     // Uncertain means the *subject* could not be read: it is missing, or it is really a
     // room, or – with no teacher found – a teacher name, so the lines were given the

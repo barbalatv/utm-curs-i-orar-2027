@@ -5,6 +5,7 @@ import { buildGrid, mergeSegments } from "@/lib/parser/geometry";
 import { buildCells, rowsCoveredBy, groupsCoveredBy } from "@/lib/parser/cell-builder";
 import { classifyType, isRoom, isTeacher, isVenue, segmentLines } from "@/lib/parser/lesson-interpreter";
 import { normalizeRoom, normalizeSubgroup, normalizeTeacher, normalizeTime } from "@/lib/parser/normalizer";
+import { resolveSubjectAlias } from "@/lib/parser/subject-aliases";
 import { extractPages, type PageExtraction } from "@/lib/parser/pdf-extract";
 import { detectDays, detectGroups, detectLayout, detectSlotRows } from "@/lib/parser/table-detector";
 import { validateSchedule } from "@/lib/parser/validator";
@@ -45,6 +46,20 @@ beforeAll(async () => {
     }),
   ]);
 });
+
+/**
+ * Pick one lesson out of the seed schedule. The lesson id is a hash of the cell's text and
+ * position, so it is too brittle to select by; day + slot + group + raw text names the same
+ * lesson for as long as the PDF prints it.
+ */
+function seedLesson(day: string, startTime: string, group: string, rawText: string) {
+  const found = seedArtifacts.schedule.lessons.filter(
+    (lesson) =>
+      lesson.day === day && lesson.start_time === startTime && lesson.groups.includes(group) && lesson.raw_text === rawText,
+  );
+  expect(found, `${day} ${startTime} ${group} ${rawText}`).toHaveLength(1);
+  return found[0];
+}
 
 describe("pdf extraction", () => {
   it("extracts positioned text and grid rectangles", () => {
@@ -202,6 +217,87 @@ describe("test_schedule_normalization", () => {
   });
 });
 
+describe("teacher recognition", () => {
+  it("reads the surname-first spelling and the initial-first one", () => {
+    expect(isTeacher("Costaș A.")).toBe(true);
+    expect(isTeacher("Ceban Gh.")).toBe(true);
+    expect(isTeacher("Prozor-Barbalat L.")).toBe(true);
+    expect(isTeacher("P. Russu")).toBe(true);
+    expect(isTeacher("P.Russu")).toBe(true);
+  });
+
+  it("keeps abbreviated subjects out of the teacher field", () => {
+    // "initial + word" is how this timetable abbreviates subjects far more often than it
+    // names a teacher, so those initials must not open the initial-first form.
+    expect(isTeacher("L. Engleză")).toBe(false);
+    expect(isTeacher("L. Română")).toBe(false);
+    expect(isTeacher("L.Engleză")).toBe(false);
+    expect(isTeacher("T. Web")).toBe(false);
+    expect(isTeacher("Ed. Fizică")).toBe(false);
+    expect(isTeacher("c. Fizica")).toBe(false);
+    expect(isTeacher("C. Fizica")).toBe(false);
+    expect(isTeacher("C. Criptografie")).toBe(false);
+  });
+
+  it("canonicalises the space the PDF drops after the initial", () => {
+    expect(normalizeTeacher("P.Russu")).toBe("P. Russu");
+    expect(normalizeTeacher("P. Russu")).toBe("P. Russu");
+    // The surname-first spellings keep the order the PDF prints.
+    expect(normalizeTeacher("Costaș A.")).toBe("Costaș A.");
+    expect(normalizeTeacher("Ceban Gh.")).toBe("Ceban Gh.");
+  });
+
+  it("splits the initial-first teacher off its subject line", () => {
+    const segments = segmentLines(["ESU", "P. Russu", "401"]);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].teacher).toBe("P. Russu");
+    expect(segments[0].room).toBe("401");
+    expect(segments[0].subjectLines).toEqual(["ESU"]);
+  });
+});
+
+describe("subject aliases", () => {
+  it("expands the abbreviations UTM uses in the grid", () => {
+    expect(resolveSubjectAlias("AM")).toBe("Analiza matematică");
+    expect(resolveSubjectAlias("ALGA")).toBe("Algebra liniară și geometria analitică");
+    expect(resolveSubjectAlias("PC")).toBe("Programarea calculatoarelor");
+    expect(resolveSubjectAlias("TP")).toBe("Tehnici de programare");
+    expect(resolveSubjectAlias("TPA")).toBe("Tehnici de programare aplicată");
+    expect(resolveSubjectAlias("CDE")).toBe("Circuite și dispozitive electronice");
+    expect(resolveSubjectAlias("ICPP")).toBe("Ingineria calculatoarelor și produse program");
+    expect(resolveSubjectAlias("ESU")).toBe("Etică și securitatea umană");
+    expect(resolveSubjectAlias("EIA")).toBe("Etică și integritate academică");
+    expect(resolveSubjectAlias("SSM")).toBe("Securitatea și sănătatea în muncă");
+    expect(resolveSubjectAlias("SSM.")).toBe("Securitatea și sănătatea în muncă");
+    expect(resolveSubjectAlias("MD")).toBe("Matematica discretă");
+    expect(resolveSubjectAlias("ÎS")).toBe("Introducere în specialitate");
+  });
+
+  it("expands the two abbreviations this timetable misspells", () => {
+    expect(resolveSubjectAlias("ESM")).toBe("Etică și securitatea umană");
+    expect(resolveSubjectAlias("SMM")).toBe("Securitatea și sănătatea în muncă");
+  });
+
+  it("expands EA only where it is the subject, not the speciality code", () => {
+    expect(resolveSubjectAlias("EA", ["FAF-261"])).toBe("Engleza în afaceri");
+    expect(resolveSubjectAlias("EA", ["EA-261", "EA-262"])).toBe("EA");
+    expect(resolveSubjectAlias("EA")).toBe("EA");
+  });
+
+  it("leaves anything it was not told about exactly as printed", () => {
+    expect(resolveSubjectAlias("XYZ")).toBe("XYZ");
+    // Abbreviations nobody confirmed keep their abbreviation rather than a guessed name.
+    expect(resolveSubjectAlias("MDPS")).toBe("MDPS");
+    expect(resolveSubjectAlias("RC")).toBe("RC");
+    // Already-full names pass through untouched.
+    expect(resolveSubjectAlias("Analiza matematică")).toBe("Analiza matematică");
+    expect(resolveSubjectAlias("Programarea calculatoarelor")).toBe("Programarea calculatoarelor");
+    // Whole-subject match only: an alias that happens to sit inside another string is not one.
+    expect(resolveSubjectAlias("Amdaris")).toBe("Amdaris");
+    expect(resolveSubjectAlias("PCAS Gavrilița M., Cazacu C.")).toBe("PCAS Gavrilița M., Cazacu C.");
+  });
+});
+
 describe("test_parser_validation", () => {
   it("accepts the real PDF and rejects suspicious drops", () => {
     const ok = validateSchedule(artifacts.schedule, { previousLessonCount: 400 });
@@ -268,6 +364,57 @@ describe("autumn 2026 packaged-seed regression", () => {
     expect(schedule.lessons).toHaveLength(449);
     expect(schedule.lessons.filter((lesson) => lesson.uncertain)).toHaveLength(0);
     expect(validateSchedule(schedule).ok).toBe(true);
+  });
+
+  it("reads the teacher this PDF writes initial-first", () => {
+    // "ESU | P. Russu | 401" used to leave the teacher glued to the subject, because only
+    // the surname-first spelling was recognised.
+    const lesson = seedLesson("Marți", "13:30", "IA-261", "ESU | P. Russu | 401");
+    expect(lesson).toMatchObject({
+      subject: "Etică și securitatea umană",
+      teacher: "P. Russu",
+      room: "401",
+      uncertain: false,
+    });
+    expect(lesson.groups).toEqual(["IA-261", "IA-262"]);
+    expect(lesson.raw_text).toBe("ESU | P. Russu | 401");
+
+    // The same teacher without the space after the initial.
+    const noSpace = seedLesson("Joi", "11:30", "IA-261", "ESU | P.Russu | 614");
+    expect(noSpace).toMatchObject({ subject: "Etică și securitatea umană", teacher: "P. Russu", room: "614" });
+
+    expect(seedArtifacts.schedule.lessons.filter((lesson) => /Russu/.test(lesson.raw_text))).toHaveLength(8);
+    for (const lesson of seedArtifacts.schedule.lessons.filter((l) => /Russu/.test(l.raw_text))) {
+      expect(lesson.teacher, lesson.raw_text).toBe("P. Russu");
+    }
+  });
+
+  it("expands the abbreviated subjects without touching the printed text", () => {
+    const cases = [
+      { day: "Vineri", time: "11:30", group: "R-262", raw: "AM | Orlov V. | 515", subject: "Analiza matematică", teacher: "Orlov V.", room: "515" },
+      { day: "Luni", time: "09:45", group: "SI-261", raw: "ALGA | Stanciu L. | 611", subject: "Algebra liniară și geometria analitică", teacher: "Stanciu L.", room: "611" },
+      { day: "Miercuri", time: "08:00", group: "SI-261", raw: "PC | Danilov I. | 628", subject: "Programarea calculatoarelor", teacher: "Danilov I.", room: "628" },
+      { day: "Luni", time: "13:30", group: "TI-262", raw: "lab. 0.5 gr. CDE | Litra D. | A03", subject: "Circuite și dispozitive electronice", teacher: "Litra D.", room: "A03" },
+    ];
+    for (const sample of cases) {
+      const lesson = seedLesson(sample.day, sample.time, sample.group, sample.raw);
+      expect(lesson.subject, sample.raw).toBe(sample.subject);
+      expect(lesson.teacher, sample.raw).toBe(sample.teacher);
+      expect(lesson.room, sample.raw).toBe(sample.room);
+      expect(lesson.uncertain, sample.raw).toBe(false);
+      // The abbreviation is expanded in `subject` only; `raw_text` stays the PDF's own text.
+      expect(lesson.raw_text, sample.raw).toBe(sample.raw);
+    }
+    // The class-type prefix is still stripped and classified before the alias is resolved.
+    expect(seedLesson("Luni", "13:30", "TI-262", "lab. 0.5 gr. CDE | Litra D. | A03")).toMatchObject({
+      lesson_type: "lab",
+      subgroup: "0.5 gr.",
+    });
+
+    // Nothing in this timetable is left holding a bare confirmed abbreviation.
+    const abbreviations = new Set(["AM", "ALGA", "PC", "TP", "TPA", "CDE", "ICPP", "ESU", "EIA", "SSM", "SSM.", "MD", "ÎS", "ESM", "SMM"]);
+    const unexpanded = seedArtifacts.schedule.lessons.filter((lesson) => abbreviations.has(lesson.subject));
+    expect(unexpanded.map((lesson) => lesson.raw_text)).toEqual([]);
   });
 });
 
