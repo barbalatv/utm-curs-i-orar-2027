@@ -58,7 +58,7 @@ export function AllGroupsView({ groups, days, timeSlots, lessons, today, week }:
       </div>
       {/* Short enough that the page never scrolls further than this section can stay pinned,
           otherwise the day tabs slide up under the app bar at the bottom of the page. */}
-      <div className="max-h-[calc(100dvh-15rem)] overflow-auto rounded-xl border border-slate-200 bg-white md:max-h-[calc(100dvh-12rem)]">
+      <div className="max-h-[calc(100dvh-15rem)] overflow-auto rounded-xl border border-slate-200 bg-white md:max-h-[calc(100dvh-12rem)]" style={{opacity: 0.9}}>
         <table className="border-separate border-spacing-0 text-left text-xs">
           <thead>
             <tr>

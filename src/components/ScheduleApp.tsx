@@ -145,16 +145,7 @@ export function ScheduleApp() {
         </div>
       </header>
 
-      <style>
-      main {
-        background: center right no-repeat fixed url("https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Flocus.md%2Fassets%2Fimages%2Fproducts%2F1781%2F515873763-24535213046085325-4650634204018459424-n.jpg&f=1&nofb=1&ipt=5fa46cade59b3fdbe4055a38db6e19575638ac5e6011691cccaf9959ecb09962") #FFF
-      }
-      main > [aria-labelledby="pick-title"]section,
-      main > [aria-label="Toate grupele"]section,
-      main > .grid > .bg-white { opacity: 0.9; }
-      </style>
-
-      <main className="mx-auto max-w-7xl px-4 pb-24 pt-4 md:pb-10">
+      <main className="mx-auto max-w-7xl px-4 pb-24 pt-4 md:pb-10" style={{background: 'center right no-repeat fixed url("https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Flocus.md%2Fassets%2Fimages%2Fproducts%2F1781%2F515873763-24535213046085325-4650634204018459424-n.jpg&f=1&nofb=1&ipt=5fa46cade59b3fdbe4055a38db6e19575638ac5e6011691cccaf9959ecb09962") #FFF'}}>
         {loadError && !schedule && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             <p className="font-semibold">Orarul nu este disponibil momentan.</p>
@@ -266,7 +257,7 @@ function GroupPicker({ groups, onPick }: { groups: string[]; onPick: (group: str
     return [...map.entries()];
   }, [groups]);
   return (
-    <section aria-labelledby="pick-title" className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
+    <section aria-labelledby="pick-title" className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8" style={{opacity: 0.9}}>
       <h1 id="pick-title" className="text-xl font-semibold tracking-tight sm:text-2xl">
         Alege grupa ta
       </h1>
@@ -338,7 +329,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
       {view === "week" && (
         <div className="grid gap-6 lg:grid-cols-2 2xl:grid-cols-5">
           {days.map((day) => (
-            <div key={day} className={`rounded-2xl border p-4 ${day === todayName ? "border-blue-200 bg-blue-50/40" : "border-slate-200 bg-white"}`}>
+            <div key={day} className={`rounded-2xl border p-4 ${day === todayName ? "border-blue-200 bg-blue-50/40" : "border-slate-200 bg-white"}`} style={{opacity: 0.9}}>
               <DayTimeline day={day} lessons={lessonsFor(day)} now={now} focusGroup={group} activeParity={week.parity} />
             </div>
           ))}

@@ -30,7 +30,7 @@ export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showH
   const starts = [...byStart.keys()].sort();
 
   return (
-    <section aria-labelledby={`day-${day}`} className="min-w-0">
+    <section aria-labelledby={`day-${day}`} className="min-w-0"  style={{opacity: 0.9}}>
       {showHeading && (
         <header className="mb-3 flex items-center gap-2">
           <h3 id={`day-${day}`} className={`text-base font-semibold ${isToday ? "text-blue-700" : "text-slate-900"}`}>
