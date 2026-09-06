@@ -111,7 +111,7 @@ export function ScheduleApp() {
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-sm font-bold text-white" aria-hidden="true">
               I
             </span>
-            <span className="hidden sm:inline">Orar FCIM · Anul I</span>
+            <span className="hidden sm:inline">ПИЗДЕЦ БЛЯТЬ ТУТ АРХИТЕКТУРА!!!!!!!</span>
             <span className="sm:hidden">Orar FCIM</span>
           </Link>
           <label className="ml-auto flex items-center gap-2 text-sm">
