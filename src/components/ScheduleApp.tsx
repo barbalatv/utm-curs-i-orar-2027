@@ -138,7 +138,7 @@ export function ScheduleApp() {
                 aria-pressed={view === mode}
                 className={`rounded-md px-3 py-1.5 font-medium transition ${view === mode ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
               >
-                {mode === "today" ? "Azi" : mode === "week" ? "Săptămâna" : "Toate grupele"}
+                {mode === "today" ? "Azi" : mode === "week" ? "Săptămâna" : "Все группы"}
               </button>
             ))}
           </nav>
@@ -343,7 +343,7 @@ function StatusFooter({ status, week }: { status: StatusResponse | null; week: W
   if (!status?.schedule) return null;
   const { schedule, source } = status;
   return (
-    // Above the pinned "Toate grupele" matrix, which is painted lower than its place in
+    // Above the pinned "Все группы" matrix, which is painted lower than its place in
     // flow and would otherwise cover this.
     <footer className="relative z-10 mt-10 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
       <div>

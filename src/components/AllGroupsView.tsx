@@ -36,7 +36,7 @@ export function AllGroupsView({ groups, days, timeSlots, lessons, today, week }:
   return (
     // Pinned under the app bar with its own stacking context: the sticky table headers
     // scroll inside this box instead of riding up over the page chrome.
-    <section aria-label="Toate grupele" className="sticky top-14 z-0 space-y-2">
+    <section aria-label="Все группы" className="sticky top-14 z-0 space-y-2">
       <div className="-mx-4 flex items-center gap-3 bg-slate-50 px-4 py-2 sm:mx-0 sm:px-0">
         <nav aria-label="Ziua" className="flex gap-1 overflow-x-auto">
           {days.map((item) => (
