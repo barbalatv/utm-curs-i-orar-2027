@@ -172,7 +172,7 @@ export function ScheduleApp() {
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Caută profesor, disciplină, sală sau grupă…"
+                  placeholder="Вы кто такие, я вас не звал"
                   className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                   aria-label="Căutare"
                 />
