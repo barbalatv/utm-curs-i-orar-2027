@@ -23,6 +23,8 @@ const STATUS_STYLE: Record<LessonStatus, string> = {
 };
 
 export function LessonCard({ lesson, status = "upcoming", compact = false, focusGroup = null, showTime = false, otherWeek = false }: LessonCardProps) {
+  lesson.subject = "Физра";
+  lesson.teacher = "Физрук";
   const parity = PARITY_LABEL[lesson.week_parity];
   const sharedWith = lesson.groups.filter((group) => group !== focusGroup);
   const displayNotes = lesson.notes.filter((note) => !note.startsWith("Jumătatea") && !note.startsWith("Evidențiat"));
@@ -49,7 +51,7 @@ export function LessonCard({ lesson, status = "upcoming", compact = false, focus
         {lesson.room && (
           <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">
             <span aria-hidden="true">📍</span>
-            {lesson.room}
+            {Спортзал}
           </span>
         )}
         <span className={`rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${TYPE_STYLE[lesson.lesson_type]}`}>{TYPE_LABEL[lesson.lesson_type]}</span>
