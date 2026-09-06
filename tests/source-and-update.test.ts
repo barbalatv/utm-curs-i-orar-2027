@@ -18,6 +18,7 @@ process.env.SCHEDULE_SEED_PDF_SHA256 = NEW_SEED_HASH;
 
 const { NextRequest: NextRequestCtor } = await import("next/server");
 const { discoverPdf } = await import("@/lib/source/discovery");
+const { pdfRevisionFromUrl } = await import("@/lib/source/revision");
 const { isAllowedSourceUrl, isOfficialTimetablePdfUrl, fetchPdf, SourceFetchError } =
   await import("@/lib/source/downloader");
 const { checkForUpdates, refreshFromExplicitPdf } = await import("@/lib/services/updater");
@@ -191,6 +192,172 @@ describe("test_schedule_page_discovery", () => {
 
   it("fails loudly when the section is missing", () => {
     expect(() => discoverPdf("<html><body><p>nothing</p></body></html>")).toThrow(/not found/);
+  });
+});
+
+describe("test_discovery_prefers_newest_revision", () => {
+  const AUTUMN_2026 = new Date("2026-09-15T12:00:00.000Z");
+  const UPLOADS = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09";
+  const file = (name: string) => `${UPLOADS}/${name}`;
+
+  interface Row {
+    label: string;
+    links: { text: string; href: string }[];
+  }
+
+  /** Minimal stand-in for the FCIM toggle section so link order is fully controlled. */
+  function schedulePage(rows: Row[]): string {
+    const body = rows
+      .map(
+        (row) =>
+          `<tr><td>${row.label}</td>${row.links
+            .map((link) => `<td><a href="${link.href}">${link.text}</a></td>`)
+            .join("")}</tr>`,
+      )
+      .join("");
+    const title = "Ciclul I, Licență - învățământ cu frecvență";
+    return `<html><body><div class="togglecontainer"><p data-title="${title}">${title}</p><table><tbody>${body}</tbody></table></div></body></html>`;
+  }
+
+  /** The autumn 2026/2027 row, i.e. the one a September check is supposed to pick. */
+  function autumnRow(hrefs: string[]): Row {
+    return {
+      label: "Orar Semestrul de TOAMNĂ a.u.2026/2027",
+      links: hrefs.map((href) => ({ text: "Anul I semestrul I", href })),
+    };
+  }
+
+  const revisions = (...names: string[]) => schedulePage([autumnRow(names.map(file))]);
+
+  it("splits a published file name into its family and numeric revision", () => {
+    expect(pdfRevisionFromUrl(file("anul_i_semestrul_i-10.pdf"))).toEqual({ family: "anul_i_semestrul_i", revision: 10 });
+    expect(pdfRevisionFromUrl(file("anul_i_semestrul_i.pdf"))).toEqual({ family: "anul_i_semestrul_i", revision: 0 });
+    expect(pdfRevisionFromUrl(`${file("anul_i_semestrul_i-10.pdf")}?ver=123`)).toEqual({
+      family: "anul_i_semestrul_i",
+      revision: 10,
+    });
+    expect(pdfRevisionFromUrl(file("orar_special_anul_i-20.pdf"))?.family).toBe("orar_special_anul_i");
+    expect(pdfRevisionFromUrl("not a url")).toBeNull();
+    expect(pdfRevisionFromUrl(file("anul_i_semestrul_i-10.txt"))).toBeNull();
+  });
+
+  it("picks the newer revision when the page still links the superseded one", () => {
+    const page = revisions("anul_i_semestrul_i-9.pdf", "anul_i_semestrul_i-10.pdf");
+    expect(discoverPdf(page, 1, AUTUMN_2026).pdf_url).toBe(file("anul_i_semestrul_i-10.pdf"));
+  });
+
+  it("compares revisions numerically, so -11 beats -10 beats -9", () => {
+    const page = revisions("anul_i_semestrul_i-9.pdf", "anul_i_semestrul_i-10.pdf", "anul_i_semestrul_i-11.pdf");
+    expect(discoverPdf(page, 1, AUTUMN_2026).pdf_url).toBe(file("anul_i_semestrul_i-11.pdf"));
+  });
+
+  it("returns the same PDF whatever order the page lists the revisions in", () => {
+    const names = ["anul_i_semestrul_i-9.pdf", "anul_i_semestrul_i-10.pdf", "anul_i_semestrul_i-11.pdf"];
+    const newest = file("anul_i_semestrul_i-11.pdf");
+    expect(discoverPdf(revisions(...names), 1, AUTUMN_2026).pdf_url).toBe(newest);
+    expect(discoverPdf(revisions(...[...names].reverse()), 1, AUTUMN_2026).pdf_url).toBe(newest);
+    expect(discoverPdf(revisions(names[1], names[2], names[0]), 1, AUTUMN_2026).pdf_url).toBe(newest);
+  });
+
+  it("treats a file published without a suffix as revision 0 of its family", () => {
+    const newest = file("anul_i_semestrul_i-2.pdf");
+    expect(discoverPdf(revisions("anul_i_semestrul_i.pdf", "anul_i_semestrul_i-2.pdf"), 1, AUTUMN_2026).pdf_url).toBe(newest);
+    expect(discoverPdf(revisions("anul_i_semestrul_i-2.pdf", "anul_i_semestrul_i.pdf"), 1, AUTUMN_2026).pdf_url).toBe(newest);
+  });
+
+  it("keeps the current semester even when another semester carries a higher revision", () => {
+    const spring: Row = {
+      label: "Orar Semestrul de PRIMĂVARĂ a.u.2026/2027",
+      links: [{ text: "Anul I semestrul II", href: file("anul_i_semestrul_ii-99.pdf") }],
+    };
+    const autumn = autumnRow([file("anul_i_semestrul_i-10.pdf")]);
+    for (const rows of [[autumn, spring], [spring, autumn]]) {
+      const found = discoverPdf(schedulePage(rows), 1, AUTUMN_2026);
+      expect(found.pdf_url).toBe(file("anul_i_semestrul_i-10.pdf"));
+      expect(found.semester).toBe("Semestrul I");
+    }
+  });
+
+  it("keeps the current academic year even when a past year carries a higher revision", () => {
+    // Same file family on purpose: only the academic-year filter can rule the old one out.
+    const past: Row = {
+      label: "Orar Semestrul de TOAMNĂ a.u.2025/2026",
+      links: [{ text: "Anul I semestrul I", href: file("anul_i_semestrul_i-100.pdf") }],
+    };
+    const found = discoverPdf(schedulePage([past, autumnRow([file("anul_i_semestrul_i-10.pdf")])]), 1, AUTUMN_2026);
+    expect(found.pdf_url).toBe(file("anul_i_semestrul_i-10.pdf"));
+    expect(found.academic_year).toBe("2026/2027");
+  });
+
+  it("keeps the requested course year even when another year carries a higher revision", () => {
+    // The Anul II link deliberately reuses the Anul I file family and a larger suffix.
+    const row: Row = {
+      label: "Orar Semestrul de TOAMNĂ a.u.2026/2027",
+      links: [
+        { text: "Anul I semestrul I", href: file("anul_i_semestrul_i-10.pdf") },
+        { text: "Anul II semestrul III", href: file("anul_i_semestrul_i-100.pdf") },
+      ],
+    };
+    const found = discoverPdf(schedulePage([row]), 1, AUTUMN_2026);
+    expect(found.pdf_url).toBe(file("anul_i_semestrul_i-10.pdf"));
+    expect(found.link_text).toMatch(/^Anul I\b/);
+  });
+
+  it("does not promote an unrelated file name just because its suffix is larger", () => {
+    const row: Row = {
+      label: "Orar Semestrul de TOAMNĂ a.u.2026/2027",
+      links: [
+        { text: "Anul I semestrul I", href: file("anul_i_semestrul_i-10.pdf") },
+        { text: "Anul I semestrul I", href: file("orar_special_anul_i-20.pdf") },
+      ],
+    };
+    expect(discoverPdf(schedulePage([row]), 1, AUTUMN_2026).pdf_url).toBe(file("anul_i_semestrul_i-10.pdf"));
+  });
+
+  it("reads the revision from the path, not from the query string", () => {
+    const versioned = `${file("anul_i_semestrul_i-10.pdf")}?v=2`;
+    const older = file("anul_i_semestrul_i-9.pdf");
+    const row = (hrefs: string[]): Row => ({
+      label: "Orar Semestrul de TOAMNĂ a.u.2026/2027",
+      links: hrefs.map((href) => ({ text: "Anul I semestrul I", href })),
+    });
+    expect(discoverPdf(schedulePage([row([older, versioned])]), 1, AUTUMN_2026).pdf_url).toBe(versioned);
+    expect(discoverPdf(schedulePage([row([versioned, older])]), 1, AUTUMN_2026).pdf_url).toBe(versioned);
+  });
+
+  it("still resolves a single eligible link exactly as before", () => {
+    expect(discoverPdf(revisions("anul_i_semestrul_i-9.pdf"), 1, AUTUMN_2026).pdf_url).toBe(
+      file("anul_i_semestrul_i-9.pdf"),
+    );
+  });
+});
+
+describe("automatic update follows a newly published revision", () => {
+  it("downloads the -2 revision while the page still links -1", async () => {
+    resetStorageCache();
+    const superseded = PDF_URL;
+    const republished = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/03/anul_i_semestrul_ii-2.pdf";
+    const links = [superseded, republished]
+      .map((href) => `<td><a href="${href}">Anul I semestrul II</a></td>`)
+      .join("");
+    const title = "Ciclul I, Licență - învățământ cu frecvență";
+    const page =
+      `<html><body><div class="togglecontainer"><p data-title="${title}">${title}</p><table><tbody>` +
+      `<tr><td>Orar Semestrul de PRIMĂVARĂ a.u.2025/2026</td>${links}</tr></tbody></table></div></body></html>`;
+
+    // Only the newer revision is routed: choosing -1 would surface as a fetch error.
+    const calls = stubFetch({
+      [PAGE_URL]: { body: page, headers: { "content-type": "text/html" } },
+      [republished]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v10"' } },
+    });
+
+    const result = await checkForUpdates();
+    expect(result.outcome).toBe("updated");
+    expect(result.pdf_url).toBe(republished);
+    expect(calls.some((call) => call.url === republished)).toBe(true);
+    expect(calls.some((call) => call.url === superseded)).toBe(false);
+    expect((await getCurrentSchedule())!.metadata.source_pdf_url).toBe(republished);
+    expect((await getSourceState()).current_pdf_url).toBe(republished);
   });
 });
 

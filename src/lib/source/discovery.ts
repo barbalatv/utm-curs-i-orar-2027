@@ -6,6 +6,7 @@
 import * as cheerio from "cheerio";
 import { config } from "@/lib/config";
 import { cleanText } from "@/lib/parser/normalizer";
+import { pdfRevisionFromUrl } from "@/lib/source/revision";
 
 export interface DiscoveredPdf {
   pdf_url: string;
@@ -107,6 +108,8 @@ function semesterFromText(text: string): string | null {
 /**
  * When the page lists more than one semester row (e.g. autumn and spring),
  * prefer the one matching the current season; otherwise keep page order.
+ * Only once the course year, academic year and season have narrowed the list
+ * does the numeric revision suffix break the remaining tie.
  */
 function pickCurrent(candidates: DiscoveredPdf[], now: Date, roman: string): DiscoveredPdf {
   const expectedYear = academicYearAt(now);
@@ -118,13 +121,34 @@ function pickCurrent(candidates: DiscoveredPdf[], now: Date, roman: string): Dis
   }
 
   const eligible = currentYear.length > 0 ? currentYear : candidates;
-  if (eligible.length === 1) return eligible[0];
   const month = now.getUTCMonth() + 1;
   const autumn = month >= 8 || month === 1;
-  const preferred = eligible.find((candidate) =>
-    autumn ? /toamn|semestrul i$/i.test(`${candidate.row_label} ${candidate.semester ?? ""}`) : /prim[aă]var|semestrul ii$/i.test(`${candidate.row_label} ${candidate.semester ?? ""}`),
-  );
-  return preferred ?? eligible[0];
+  const seasonRe = autumn ? /toamn|semestrul i$/i : /prim[aă]var|semestrul ii$/i;
+  const seasonal = eligible.filter((candidate) => seasonRe.test(`${candidate.row_label} ${candidate.semester ?? ""}`));
+  return newestRevision(seasonal.length > 0 ? seasonal : eligible);
+}
+
+/**
+ * A corrected timetable is republished as `<same name>-<n+1>.pdf` while the
+ * superseded link may linger on the page. The first candidate still decides
+ * which document wins — page order keeps its meaning across unrelated file
+ * names — and is only upgraded to a higher numeric revision of that same name.
+ * An unparseable URL never disqualifies a candidate; it just cannot upgrade one.
+ */
+function newestRevision(candidates: DiscoveredPdf[]): DiscoveredPdf {
+  const anchor = candidates[0];
+  const anchorRevision = pdfRevisionFromUrl(anchor.pdf_url);
+  if (!anchorRevision) return anchor;
+
+  let best = anchor;
+  let bestRevision = anchorRevision.revision;
+  for (const candidate of candidates.slice(1)) {
+    const parsed = pdfRevisionFromUrl(candidate.pdf_url);
+    if (!parsed || parsed.family !== anchorRevision.family || parsed.revision <= bestRevision) continue;
+    best = candidate;
+    bestRevision = parsed.revision;
+  }
+  return best;
 }
 
 /** FCIM's academic year changes with the autumn timetable publication cycle. */

@@ -21,6 +21,7 @@ import {
   waybackUrl,
   type FetchedResource,
 } from "@/lib/source/downloader";
+import { splitPdfRevision } from "@/lib/source/revision";
 import { getCurrentSchedule, getSourceState, replaceCurrentSchedule, saveSourceState } from "@/lib/storage";
 
 const log = getLogger("updater");
@@ -536,13 +537,8 @@ function seedPublication(rawUrl: string): SeedPublication | null {
   if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "fcim.utm.md") return null;
   const match = /^\/wp-content\/uploads\/sites\/24\/(\d{4})\/(\d{2})\/([^/]+\.pdf)$/i.exec(url.pathname);
   if (!match) return null;
-  const revision = /^(.+)-(\d+)\.pdf$/i.exec(match[3]);
-  return {
-    year: Number(match[1]),
-    month: Number(match[2]),
-    basename: (revision?.[1] ?? match[3].replace(/\.pdf$/i, "")).toLowerCase(),
-    revision: revision ? Number(revision[2]) : 0,
-  };
+  const { family, revision } = splitPdfRevision(match[3]);
+  return { year: Number(match[1]), month: Number(match[2]), basename: family, revision };
 }
 
 function isNewerPackagedSeedUrl(currentUrl: string, bundledUrl: string): boolean {
