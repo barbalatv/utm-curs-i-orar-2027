@@ -11,7 +11,7 @@
  * assert anyway, without a headless-browser dependency in CI.
  *
  * No network: the store is populated before the first request, so `requireSchedule()` never
- * falls through to `checkForUpdates()`. A stubbed-out fetch guards that invariant.
+ * falls through to `checkForUpdates(1)`. A stubbed-out fetch guards that invariant.
  */
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -31,6 +31,9 @@ const { parsePdf, sha256 } = await import("@/lib/parser");
 const { ScheduleSchema } = await import("@/lib/models");
 const { replaceCurrentSchedule, resetStorageCache, saveSourceState } = await import("@/lib/storage");
 const { config } = await import("@/lib/config");
+const { courseSeed } = await import("@/lib/courses");
+/** The Anul I seed this deployment ships with. */
+const SEED_SOURCE = courseSeed(1)!;
 
 const health = (await import("@/app/api/health/route")).GET;
 const status = (await import("@/app/api/status/route")).GET;
@@ -70,16 +73,16 @@ beforeAll(async () => {
   pdfBytes = new Uint8Array(await readFile(SEED));
   const { schedule: parsed } = await parsePdf(pdfBytes, {
     source_page_url: config.schedulePageUrl,
-    source_pdf_url: config.seedPdfOriginalUrl,
+    source_pdf_url: SEED_SOURCE.originalUrl,
     source_kind: "seed",
     downloaded_at: "2026-09-01T00:00:00.000Z",
   });
   lessonCount = parsed.lessons.length;
   groupNames = parsed.groups.map((group) => group.name);
 
-  await replaceCurrentSchedule(parsed);
-  await saveSourceState({
-    current_pdf_url: config.seedPdfOriginalUrl,
+  await replaceCurrentSchedule(1, parsed);
+  await saveSourceState(1, {
+    current_pdf_url: SEED_SOURCE.originalUrl,
     current_pdf_hash: sha256(pdfBytes),
     last_check_at: "2026-09-01T00:00:00.000Z",
     last_success_at: "2026-09-01T00:00:00.000Z",
@@ -149,7 +152,7 @@ describe("test_smoke_schedule_api_shape", () => {
   });
 
   it("reports the same schedule through /api/status with the week anchor the UI needs", async () => {
-    const payload = await body<import("@/lib/client/types").StatusResponse>(await status());
+    const payload = await body<import("@/lib/client/types").StatusResponse>(await status(get("/api/status")));
     expect(payload.ok).toBe(true);
     expect(payload.has_schedule).toBe(true);
     expect(payload.schedule).toMatchObject({
@@ -166,7 +169,7 @@ describe("test_smoke_schedule_api_shape", () => {
   });
 
   it("lists the discovered groups with their lesson counts", async () => {
-    const payload = await body<import("@/lib/client/types").GroupsResponse>(await groups());
+    const payload = await body<import("@/lib/client/types").GroupsResponse>(await groups(get("/api/groups")));
     expect(payload.count).toBe(groupNames.length);
     expect(payload.groups.map((group) => group.name)).toEqual(groupNames);
     const known = payload.groups.find((group) => group.name === KNOWN_GROUP);
@@ -217,10 +220,10 @@ describe("test_smoke_known_group_and_lesson", () => {
 
   it("reports where the served data came from", async () => {
     const payload = await body<{ pdf_url: string; pdf_hash: string; source_kind: string; academic_year: string }>(
-      await source(),
+      await source(get("/api/source")),
     );
     expect(payload).toMatchObject({
-      pdf_url: config.seedPdfOriginalUrl,
+      pdf_url: SEED_SOURCE.originalUrl,
       pdf_hash: sha256(pdfBytes),
       source_kind: "seed",
       academic_year: "2026/2027",

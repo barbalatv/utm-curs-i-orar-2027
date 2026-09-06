@@ -126,17 +126,27 @@ export const SourceStateSchema = z.object({
 });
 export type SourceState = z.infer<typeof SourceStateSchema>;
 
-export const EMPTY_SOURCE_STATE: SourceState = {
-  current_pdf_url: null,
-  current_pdf_hash: null,
-  etag: null,
-  last_modified: null,
-  last_check_at: null,
-  last_success_at: null,
-  last_error: null,
-  last_error_at: null,
-  last_result: "never",
-  academic_year: null,
-  semester: null,
-  parity_note: null,
-};
+/**
+ * A course with no state yet. This is a factory, never a shared object: two courses
+ * that are both empty must not end up holding the same instance, or a later mutation
+ * of one course's state would silently appear in the other.
+ */
+export function createEmptySourceState(): SourceState {
+  return {
+    current_pdf_url: null,
+    current_pdf_hash: null,
+    etag: null,
+    last_modified: null,
+    last_check_at: null,
+    last_success_at: null,
+    last_error: null,
+    last_error_at: null,
+    last_result: "never",
+    academic_year: null,
+    semester: null,
+    parity_note: null,
+  };
+}
+
+/** Read-only template, frozen so it cannot become shared mutable state by accident. */
+export const EMPTY_SOURCE_STATE: Readonly<SourceState> = Object.freeze(createEmptySourceState());

@@ -1,12 +1,14 @@
 /**
- * Schedule update loop:
+ * Schedule update loop, per course year:
  *   discovery or an authenticated official PDF URL
  *   → download → sha256 → parse → validate → atomic replace.
- * Any failure keeps the previous known-good schedule. A bundled real FCIM PDF
- * is also used for cold starts and conservative promotion of older seed data.
+ * Any failure keeps that course's previous known-good schedule, and never touches
+ * another course. A bundled real FCIM PDF is also used for cold starts and
+ * conservative promotion of older seed data — for the courses that have one.
  */
 import { readFile } from "node:fs/promises";
 import { config } from "@/lib/config";
+import { isSupportedCourse, courseSeed, SUPPORTED_COURSE_YEARS, UnsupportedCourseError, type CourseSeed } from "@/lib/courses";
 import { errorMessage, getLogger } from "@/lib/logger";
 import type { Schedule, ScheduleMetadata, SourceState } from "@/lib/models";
 import { parsePdf, sha256, type Provenance } from "@/lib/parser";
@@ -29,6 +31,7 @@ const log = getLogger("updater");
 export type CheckOutcome = SourceState["last_result"];
 
 export interface CheckResult {
+  course_year: number;
   outcome: CheckOutcome;
   message: string;
   pdf_url?: string;
@@ -61,37 +64,75 @@ interface ApplyResult {
   schedule?: Schedule;
 }
 
-let automaticInFlight: Promise<CheckResult> | null = null;
-let updateTail: Promise<void> = Promise.resolve();
+/**
+ * Ordinary checks coalesce per course: two scheduler ticks for Anul I share one run,
+ * while an Anul I and an Anul II check are always distinct operations with their own
+ * results. Actual downloads and storage writes still run one at a time through the
+ * shared tail — update frequency is low, and serialising keeps the parser and the
+ * atomic file replacements free of races without any distributed machinery.
+ *
+ * The coordinator lives on globalThis, not in module scope. Next.js bundles the
+ * instrumentation hook and the route handlers separately, so this module is evaluated
+ * more than once inside a single process; module-local state would give the scheduler
+ * and the API their own queues, and the serialisation this relies on would be a
+ * fiction. The deployment stays single-process — this is not a distributed lock.
+ */
+interface UpdateCoordinator {
+  /** Tail of the one serialization queue every update joins. */
+  tail: Promise<void>;
+  /** Ordinary (non-forced) runs that may still be joined, keyed by course. */
+  inFlightByCourse: Map<number, Promise<CheckResult>>;
+}
+
+const globalRef = globalThis as typeof globalThis & { __fcimUpdateCoordinator?: UpdateCoordinator };
+const coordinator: UpdateCoordinator = (globalRef.__fcimUpdateCoordinator ??= {
+  tail: Promise.resolve(),
+  inFlightByCourse: new Map(),
+});
 
 /** Serialize automatic and administrative updates so two atomic replacements cannot race. */
 function enqueueUpdate(run: () => Promise<CheckResult>): Promise<CheckResult> {
-  const result = updateTail.then(run, run);
-  updateTail = result.then(
+  const result = coordinator.tail.then(run, run);
+  coordinator.tail = result.then(
     () => undefined,
     () => undefined,
   );
   return result;
 }
 
-/** Run an automatic check; concurrent ordinary callers share the same run. */
-export function checkForUpdates(options: { force?: boolean } = {}): Promise<CheckResult> {
+/** Run an automatic check for one course; concurrent ordinary callers for it share the run. */
+export function checkForUpdates(courseYear: number, options: { force?: boolean } = {}): Promise<CheckResult> {
+  // Rejected rather than thrown: this returns a promise, so a `void checkForUpdates(x)`
+  // caller must get a handleable rejection instead of a synchronous crash.
+  if (!isSupportedCourse(courseYear)) return Promise.reject(new UnsupportedCourseError(courseYear));
   // A force request is a distinct operation. It still joins the serialization queue,
   // but must run after (rather than inherit) an ordinary in-flight scheduler check.
-  if (options.force) return enqueueUpdate(() => runAutomaticCheck(options));
-  if (automaticInFlight) return automaticInFlight;
-  const task = enqueueUpdate(() => runAutomaticCheck(options));
-  automaticInFlight = task;
+  if (options.force) return enqueueUpdate(() => runAutomaticCheck(courseYear, options));
+  const pending = coordinator.inFlightByCourse.get(courseYear);
+  if (pending) return pending;
+  const task = enqueueUpdate(() => runAutomaticCheck(courseYear, options));
+  coordinator.inFlightByCourse.set(courseYear, task);
+  // Both settlements clear the slot: a rejected run must not leave a poisoned promise
+  // that every later ordinary caller for this course would join.
   const clear = () => {
-    if (automaticInFlight === task) automaticInFlight = null;
+    if (coordinator.inFlightByCourse.get(courseYear) === task) coordinator.inFlightByCourse.delete(courseYear);
   };
   void task.then(clear, clear);
   return task;
 }
 
 /** Authenticated callers use this path after the API route validates their request. */
-export function refreshFromExplicitPdf(options: ExplicitRefreshOptions): Promise<CheckResult> {
-  return enqueueUpdate(() => runExplicitRefresh(options));
+export function refreshFromExplicitPdf(courseYear: number, options: ExplicitRefreshOptions): Promise<CheckResult> {
+  if (!isSupportedCourse(courseYear)) return Promise.reject(new UnsupportedCourseError(courseYear));
+  return enqueueUpdate(() => runExplicitRefresh(courseYear, options));
+}
+
+/** Test helper: observe the process-global coordinator this module instance is bound to. */
+export function updateCoordinatorState(): { inFlightCourses: number[]; shared: boolean } {
+  return {
+    inFlightCourses: [...coordinator.inFlightByCourse.keys()],
+    shared: globalRef.__fcimUpdateCoordinator === coordinator,
+  };
 }
 
 interface Discovery {
@@ -99,44 +140,45 @@ interface Discovery {
   kind: "live" | "wayback";
 }
 
-async function discoverCurrentPdf(): Promise<Discovery> {
+async function discoverCurrentPdf(courseYear: number): Promise<Discovery> {
   const failures: string[] = [];
   try {
     const html = await fetchSchedulePage(config.schedulePageUrl);
-    return { pdf: discoverPdf(html), kind: "live" };
+    return { pdf: discoverPdf(html, courseYear), kind: "live" };
   } catch (liveError) {
     failures.push(errorMessage(liveError));
-    log.warn("live schedule page unavailable", { error: errorMessage(liveError) });
+    log.warn("live schedule page unavailable", { courseYear, error: errorMessage(liveError) });
   }
 
   if (config.wordpressFallbackEnabled) {
     try {
       const html = await fetchWordPressSchedulePage(config.wordpressApiUrl);
-      return { pdf: discoverPdf(html), kind: "live" };
+      return { pdf: discoverPdf(html, courseYear), kind: "live" };
     } catch (wordpressError) {
       failures.push(`WordPress API: ${errorMessage(wordpressError)}`);
-      log.warn("official WordPress API unavailable", { error: errorMessage(wordpressError) });
+      log.warn("official WordPress API unavailable", { courseYear, error: errorMessage(wordpressError) });
     }
   }
 
   if (!config.waybackFallbackEnabled) throw new Error(failures.join("; "));
-  log.warn("official schedule sources unavailable, trying archive mirror");
+  log.warn("official schedule sources unavailable, trying archive mirror", { courseYear });
   try {
     const html = await fetchSchedulePage(waybackUrl(config.schedulePageUrl), [config.waybackHost]);
-    return { pdf: discoverPdf(html), kind: "wayback" };
+    return { pdf: discoverPdf(html, courseYear), kind: "wayback" };
   } catch (archiveError) {
     failures.push(`archive mirror: ${errorMessage(archiveError)}`);
     throw new Error(failures.join("; "));
   }
 }
 
-async function runAutomaticCheck(options: { force?: boolean }): Promise<CheckResult> {
+async function runAutomaticCheck(courseYear: number, options: { force?: boolean }): Promise<CheckResult> {
   const startedAt = new Date().toISOString();
 
   try {
-    await promoteBundledSeedIfNewer();
-    const { pdf, kind } = await discoverCurrentPdf();
+    await promoteBundledSeedIfNewer(courseYear);
+    const { pdf, kind } = await discoverCurrentPdf(courseYear);
     return await updateFromPdfSource(
+      courseYear,
       {
         pdfUrl: pdf.pdf_url,
         downloadUrl: kind === "wayback" ? waybackUrl(pdf.pdf_url) : pdf.pdf_url,
@@ -153,41 +195,43 @@ async function runAutomaticCheck(options: { force?: boolean }): Promise<CheckRes
   } catch (error) {
     const message = errorMessage(error);
     const kind = error instanceof SourceFetchError ? error.kind : "unknown";
-    log.error("schedule check failed", { error: message, kind });
-    await saveSourceState({
+    log.error("schedule check failed", { courseYear, error: message, kind });
+    await saveSourceState(courseYear, {
       last_check_at: startedAt,
       last_result: "error",
       last_error: message,
       last_error_at: startedAt,
     });
 
-    if (!(await getCurrentSchedule())) {
+    if (!(await getCurrentSchedule(courseYear))) {
       try {
-        return await seedFromBundledPdf();
+        return await seedFromBundledPdf(courseYear);
       } catch (seedError) {
         const fallbackMessage = `seed fallback failed: ${errorMessage(seedError)}`;
         const combinedMessage = `${message}; ${fallbackMessage}`;
         log.warn("seed fallback failed after automatic discovery error", {
+          courseYear,
           error: errorMessage(seedError),
-          mirror: config.seedPdfMirrorUrl,
+          mirror: courseSeed(courseYear)?.mirrorUrl ?? null,
         });
-        await saveSourceState({
+        await saveSourceState(courseYear, {
           last_check_at: startedAt,
           last_result: "error",
           last_error: combinedMessage,
           last_error_at: startedAt,
         });
-        return { outcome: "error", message: combinedMessage };
+        return { course_year: courseYear, outcome: "error", message: combinedMessage };
       }
     }
-    return { outcome: "error", message };
+    return { course_year: courseYear, outcome: "error", message };
   }
 }
 
-async function runExplicitRefresh(options: ExplicitRefreshOptions): Promise<CheckResult> {
+async function runExplicitRefresh(courseYear: number, options: ExplicitRefreshOptions): Promise<CheckResult> {
   const startedAt = new Date().toISOString();
   try {
     return await updateFromPdfSource(
+      courseYear,
       {
         pdfUrl: options.pdfUrl,
         downloadUrl: options.pdfUrl,
@@ -200,21 +244,23 @@ async function runExplicitRefresh(options: ExplicitRefreshOptions): Promise<Chec
     const message = errorMessage(error);
     const kind = error instanceof SourceFetchError ? error.kind : "unknown";
     log.error("explicit PDF refresh failed, keeping previous version", {
+      courseYear,
       error: message,
       kind,
       pdf: options.pdfUrl,
     });
     // Automatic discovery health remains untouched. The authenticated response and
     // logs report this recovery failure without erasing the last discovery diagnostic.
-    return { outcome: "error", message, pdf_url: options.pdfUrl };
+    return { course_year: courseYear, outcome: "error", message, pdf_url: options.pdfUrl };
   }
 }
 
 async function updateFromPdfSource(
+  courseYear: number,
   source: PdfUpdateSource,
   options: { force?: boolean; mode: UpdateMode; startedAt: string },
 ): Promise<CheckResult> {
-  const [state, current] = await Promise.all([getSourceState(), getCurrentSchedule()]);
+  const [state, current] = await Promise.all([getSourceState(courseYear), getCurrentSchedule(courseYear)]);
   const staleParser = current !== null && current.metadata.parser_version !== config.parserVersion;
   const sourceUpgrade = source.kind === "live" && current !== null && current.metadata.source_kind !== "live";
   const sourceUrlChanged = current !== null && current.metadata.source_pdf_url !== source.pdfUrl;
@@ -229,13 +275,13 @@ async function updateFromPdfSource(
 
   const resource = await fetchSourcePdf(source, conditional);
   if (resource.notModified) {
-    await recordResult(options.mode, {
+    await recordResult(courseYear, options.mode, {
       startedAt: options.startedAt,
       outcome: "unchanged",
       message: "PDF not modified (304)",
       source,
     });
-    return { outcome: "unchanged", message: "PDF not modified (304)", pdf_url: source.pdfUrl };
+    return { course_year: courseYear, outcome: "unchanged", message: "PDF not modified (304)", pdf_url: source.pdfUrl };
   }
 
   const canonicalPdfUrl = source.fetchMode === "explicit" ? resource.finalUrl : source.pdfUrl;
@@ -248,7 +294,7 @@ async function updateFromPdfSource(
 
   if (!mustApply && current && hash === current.metadata.source_pdf_hash) {
     const message = "PDF hash unchanged";
-    await recordResult(options.mode, {
+    await recordResult(courseYear, options.mode, {
       startedAt: options.startedAt,
       outcome: "unchanged",
       message,
@@ -259,6 +305,7 @@ async function updateFromPdfSource(
       schedule: current,
     });
     return {
+      course_year: courseYear,
       outcome: "unchanged",
       message,
       pdf_url: canonicalPdfUrl,
@@ -278,16 +325,18 @@ async function updateFromPdfSource(
     academic_year: source.academicYear,
     semester: source.semester,
     semester_source: source.semesterSource,
+    course_year: courseYear,
   };
   if (staleParser) {
     log.info("re-parsing the cached PDF with the new parser", {
+      courseYear,
       from: current?.metadata.parser_version,
       to: config.parserVersion,
     });
   }
 
-  const applied = await parseAndApply(resource.bytes, provenance, current);
-  await recordResult(options.mode, {
+  const applied = await parseAndApply(courseYear, resource.bytes, provenance, current);
+  await recordResult(courseYear, options.mode, {
     startedAt: options.startedAt,
     outcome: applied.result.outcome,
     message: applied.result.message,
@@ -315,6 +364,7 @@ async function fetchSourcePdf(
 }
 
 async function recordResult(
+  courseYear: number,
   mode: UpdateMode,
   details: {
     startedAt: string;
@@ -339,20 +389,20 @@ async function recordResult(
 
   if (mode === "explicit") {
     if (details.outcome === "updated") {
-      await saveSourceState({
+      await saveSourceState(courseYear, {
         ...currentFields,
         last_success_at: details.startedAt,
         academic_year: details.schedule?.metadata.academic_year ?? null,
         semester: details.schedule?.metadata.semester ?? null,
       });
     } else if (details.outcome === "unchanged") {
-      await saveSourceState(currentFields);
+      await saveSourceState(courseYear, currentFields);
     }
     return;
   }
 
   const rejected = details.outcome === "rejected";
-  await saveSourceState({
+  await saveSourceState(courseYear, {
     last_check_at: details.startedAt,
     last_result: details.outcome,
     last_error: rejected ? details.message : null,
@@ -371,12 +421,18 @@ async function recordResult(
   });
 }
 
-async function parseAndApply(bytes: Uint8Array, provenance: Provenance, current: Schedule | null): Promise<ApplyResult> {
-  const built = await buildValidatedSchedule(bytes, provenance, current);
+async function parseAndApply(
+  courseYear: number,
+  bytes: Uint8Array,
+  provenance: Provenance,
+  current: Schedule | null,
+): Promise<ApplyResult> {
+  const built = await buildValidatedSchedule(courseYear, bytes, provenance, current);
   if (!built.schedule) return { result: built.result };
 
-  await replaceCurrentSchedule(built.schedule);
+  await replaceCurrentSchedule(courseYear, built.schedule);
   log.info("schedule updated", {
+    courseYear,
     pdf: provenance.source_pdf_url,
     hash: built.schedule.metadata.source_pdf_hash,
     groups: built.schedule.groups.length,
@@ -387,23 +443,24 @@ async function parseAndApply(bytes: Uint8Array, provenance: Provenance, current:
 }
 
 /**
- * One deployment serves exactly one course year (SCHEDULE_COURSE_YEAR). A parsed
- * schedule that belongs to another one — the bundled Anul I seed on an Anul II
- * deployment, say — must never be installed, however healthy it looks otherwise.
- * This is the single gate every candidate passes: live, wayback, manual, packaged
- * seed, image seed, repository mirror seed and seed promotion alike.
+ * Each course slot holds exactly one course year's timetable. A parsed schedule that
+ * belongs to another one — the bundled Anul I seed offered to Anul II, say — must never
+ * be installed, however healthy it looks otherwise. This is the single gate every
+ * candidate passes: live, wayback, manual, packaged seed, image seed, repository mirror
+ * seed and seed promotion alike.
  */
-function courseYearMismatch(schedule: Schedule): string | null {
+function courseYearMismatch(schedule: Schedule, courseYear: number): string | null {
   const parsed = schedule.metadata.course_year;
-  if (parsed === config.courseYear) return null;
+  if (parsed === courseYear) return null;
   const title = schedule.metadata.pdf_title;
   return (
     `course year mismatch: the PDF belongs to course year ${parsed}` +
-    `${title ? ` ("${title}")` : ""}, but this deployment serves course year ${config.courseYear}`
+    `${title ? ` ("${title}")` : ""}, but this update was requested for course year ${courseYear}`
   );
 }
 
 async function buildValidatedSchedule(
+  courseYear: number,
   bytes: Uint8Array,
   provenance: Provenance,
   current: Schedule | null,
@@ -413,33 +470,36 @@ async function buildValidatedSchedule(
     ({ schedule } = await parsePdf(bytes, provenance));
   } catch (error) {
     const message = `parser failed: ${errorMessage(error)}`;
-    log.error(message, { pdf: provenance.source_pdf_url });
-    return { result: { outcome: "rejected", message } };
+    log.error(message, { courseYear, pdf: provenance.source_pdf_url });
+    return { result: { course_year: courseYear, outcome: "rejected", message } };
   }
 
-  const mismatch = courseYearMismatch(schedule);
+  const mismatch = courseYearMismatch(schedule, courseYear);
   if (mismatch) {
     log.error("candidate schedule rejected: wrong course year", {
+      courseYear,
       message: mismatch,
       pdf: provenance.source_pdf_url,
       source_kind: provenance.source_kind,
     });
-    return { result: { outcome: "rejected", message: mismatch } };
+    return { result: { course_year: courseYear, outcome: "rejected", message: mismatch } };
   }
 
   const validation = validateSchedule(schedule, { previousLessonCount: current?.lessons.length ?? null });
   if (!validation.ok) {
     const message = `validation failed: ${validation.errors.join("; ")}`;
     log.error("new schedule rejected, keeping previous version", {
+      courseYear,
       errors: validation.errors,
       pdf: provenance.source_pdf_url,
     });
-    return { result: { outcome: "rejected", message } };
+    return { result: { course_year: courseYear, outcome: "rejected", message } };
   }
-  for (const warning of validation.warnings) log.warn("validation warning", { warning });
+  for (const warning of validation.warnings) log.warn("validation warning", { courseYear, warning });
 
   return {
     result: {
+      course_year: courseYear,
       outcome: "updated",
       message: `parsed ${schedule.lessons.length} lessons for ${schedule.groups.length} groups`,
       lessons: schedule.lessons.length,
@@ -450,8 +510,8 @@ async function buildValidatedSchedule(
   };
 }
 
-async function readBundledSeed(): Promise<{ bytes: Uint8Array; path: string } | null> {
-  const paths = [...new Set([config.seedPdfPath, config.imageSeedPdfPath])];
+async function readBundledSeed(seed: CourseSeed): Promise<{ bytes: Uint8Array; path: string } | null> {
+  const paths = [...new Set([seed.pdfPath, seed.imagePdfPath])];
   for (const filePath of paths) {
     try {
       return { bytes: new Uint8Array(await readFile(filePath)), path: filePath };
@@ -467,50 +527,56 @@ async function readBundledSeed(): Promise<{ bytes: Uint8Array; path: string } | 
  * holds an older seed. Promote only when URL revision ordering and parsed metadata
  * prove this is a forward move within the exact same academic context.
  */
-async function promoteBundledSeedIfNewer(): Promise<void> {
-  const current = await getCurrentSchedule();
+async function promoteBundledSeedIfNewer(courseYear: number): Promise<void> {
+  const seed = courseSeed(courseYear);
+  if (!seed) return;
+  const current = await getCurrentSchedule(courseYear);
   if (!current || current.metadata.source_kind !== "seed") return;
 
-  const bundled = await readBundledSeed();
+  const bundled = await readBundledSeed(seed);
   if (!bundled) return;
   const bundledHash = sha256(bundled.bytes);
   if (
     bundledHash === current.metadata.source_pdf_hash ||
-    config.seedPdfOriginalUrl === current.metadata.source_pdf_url ||
-    !isNewerPackagedSeedUrl(current.metadata.source_pdf_url, config.seedPdfOriginalUrl)
+    seed.originalUrl === current.metadata.source_pdf_url ||
+    !isNewerPackagedSeedUrl(current.metadata.source_pdf_url, seed.originalUrl)
   ) {
     return;
   }
 
   const now = new Date().toISOString();
   const built = await buildValidatedSchedule(
+    courseYear,
     bundled.bytes,
     {
       source_page_url: config.schedulePageUrl,
-      source_pdf_url: config.seedPdfOriginalUrl,
+      source_pdf_url: seed.originalUrl,
       source_kind: "seed",
       downloaded_at: now,
+      course_year: courseYear,
     },
     current,
   );
   if (!built.schedule) {
     log.warn("newer bundled seed was invalid; keeping persisted seed", {
+      courseYear,
       path: bundled.path,
       error: built.result.message,
     });
     return;
   }
-  if (!sameAcademicContext(current, built.schedule)) {
+  if (!sameAcademicContext(current, built.schedule, courseYear)) {
     log.warn("bundled seed academic context differs; keeping persisted seed", {
+      courseYear,
       current: academicContext(current),
       bundled: academicContext(built.schedule),
     });
     return;
   }
 
-  await replaceCurrentSchedule(built.schedule);
-  await saveSourceState({
-    current_pdf_url: config.seedPdfOriginalUrl,
+  await replaceCurrentSchedule(courseYear, built.schedule);
+  await saveSourceState(courseYear, {
+    current_pdf_url: seed.originalUrl,
     current_pdf_hash: bundledHash,
     etag: null,
     last_modified: null,
@@ -520,8 +586,9 @@ async function promoteBundledSeedIfNewer(): Promise<void> {
     semester: built.schedule.metadata.semester,
   });
   log.warn("promoted obsolete persisted seed to newer packaged baseline", {
+    courseYear,
     from: current.metadata.source_pdf_url,
-    to: config.seedPdfOriginalUrl,
+    to: seed.originalUrl,
     hash: bundledHash,
     groups: built.schedule.groups.length,
     lessons: built.schedule.lessons.length,
@@ -536,7 +603,7 @@ function academicContext(schedule: Schedule) {
   };
 }
 
-function sameAcademicContext(current: Schedule, bundled: Schedule): boolean {
+function sameAcademicContext(current: Schedule, bundled: Schedule, courseYear: number): boolean {
   const left = academicContext(current);
   const right = academicContext(bundled);
   return (
@@ -545,7 +612,7 @@ function sameAcademicContext(current: Schedule, bundled: Schedule): boolean {
     left.semester !== null &&
     left.semester === right.semester &&
     left.courseYear === right.courseYear &&
-    right.courseYear === config.courseYear
+    right.courseYear === courseYear
   );
 }
 
@@ -579,8 +646,8 @@ function isNewerPackagedSeedUrl(currentUrl: string, bundledUrl: string): boolean
   return bundledPeriod > currentPeriod || (bundledPeriod === currentPeriod && bundled.revision > current.revision);
 }
 
-function verifySeedMirrorHash(bytes: Uint8Array): void {
-  const expected = config.seedPdfSha256.trim().toLowerCase();
+function verifySeedMirrorHash(bytes: Uint8Array, seed: CourseSeed): void {
+  const expected = seed.sha256.trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(expected)) {
     throw new Error("SCHEDULE_SEED_PDF_SHA256 must contain a 64-character hexadecimal SHA-256");
   }
@@ -592,22 +659,27 @@ function verifySeedMirrorHash(bytes: Uint8Array): void {
 
 /**
  * Last resort for a cold start without network: a real, previously published FCIM PDF.
- * Throws when no seed can be installed, so the caller reports the failure instead of
- * appearing healthy; storage is left untouched in that case.
+ * Throws when no seed can be installed — including for a course that simply has none —
+ * so the caller reports the failure instead of appearing healthy; storage is left
+ * untouched in that case, and the course stays unavailable until the source returns.
  */
-async function seedFromBundledPdf(): Promise<CheckResult> {
-  const bundled = await readBundledSeed();
+async function seedFromBundledPdf(courseYear: number): Promise<CheckResult> {
+  const seed = courseSeed(courseYear);
+  if (!seed) throw new Error(`no bundled seed PDF is available for course year ${courseYear}`);
+
+  const bundled = await readBundledSeed(seed);
   let bytes = bundled?.bytes ?? null;
   if (!bytes) {
     try {
-      const mirror = await fetchPdf(config.seedPdfMirrorUrl, {}, ["raw.githubusercontent.com"]);
-      verifySeedMirrorHash(mirror.bytes);
+      const mirror = await fetchPdf(seed.mirrorUrl, {}, ["raw.githubusercontent.com"]);
+      verifySeedMirrorHash(mirror.bytes, seed);
       bytes = mirror.bytes;
-      log.warn("loaded seed PDF from the repository mirror", { url: config.seedPdfMirrorUrl });
+      log.warn("loaded seed PDF from the repository mirror", { courseYear, url: seed.mirrorUrl });
     } catch (error) {
       log.warn("no seed PDF available", {
-        paths: [...new Set([config.seedPdfPath, config.imageSeedPdfPath])],
-        mirror: config.seedPdfMirrorUrl,
+        courseYear,
+        paths: [...new Set([seed.pdfPath, seed.imagePdfPath])],
+        mirror: seed.mirrorUrl,
         error: errorMessage(error),
       });
       throw error;
@@ -616,18 +688,20 @@ async function seedFromBundledPdf(): Promise<CheckResult> {
 
   const now = new Date().toISOString();
   const applied = await parseAndApply(
+    courseYear,
     bytes,
     {
       source_page_url: config.schedulePageUrl,
-      source_pdf_url: config.seedPdfOriginalUrl,
+      source_pdf_url: seed.originalUrl,
       source_kind: "seed",
       downloaded_at: now,
+      course_year: courseYear,
     },
     null,
   );
   if (applied.result.outcome !== "updated" || !applied.schedule) throw new Error(applied.result.message);
-  await saveSourceState({
-    current_pdf_url: config.seedPdfOriginalUrl,
+  await saveSourceState(courseYear, {
+    current_pdf_url: seed.originalUrl,
     current_pdf_hash: applied.schedule.metadata.source_pdf_hash,
     etag: null,
     last_modified: null,
@@ -636,28 +710,51 @@ async function seedFromBundledPdf(): Promise<CheckResult> {
     academic_year: applied.schedule.metadata.academic_year,
     semester: applied.schedule.metadata.semester,
   });
-  log.warn("served bundled seed PDF because the live source is unreachable and no cache exists");
+  log.warn("served bundled seed PDF because the live source is unreachable and no cache exists", { courseYear });
   return {
+    course_year: courseYear,
     outcome: "seeded",
     message: "bootstrapped from bundled seed PDF",
-    pdf_url: config.seedPdfOriginalUrl,
+    pdf_url: seed.originalUrl,
     source_pdf_hash: applied.schedule.metadata.source_pdf_hash,
     groups: applied.schedule.groups.length,
     lessons: applied.schedule.lessons.length,
   };
 }
 
-/** Bootstraps the cache (if needed) and starts the periodic refresh loop. Idempotent. */
+/**
+ * One tick refreshes every supported course, one after another. A course that fails
+ * keeps its own last-known-good schedule and its own error state; the next course is
+ * checked regardless, so one broken timetable never stops the other from updating.
+ */
+export async function refreshAllCourses(options: { force?: boolean } = {}): Promise<CheckResult[]> {
+  const results: CheckResult[] = [];
+  for (const courseYear of SUPPORTED_COURSE_YEARS) {
+    try {
+      results.push(await checkForUpdates(courseYear, options));
+    } catch (error) {
+      const message = errorMessage(error);
+      log.error("scheduled check failed", { courseYear, error: message });
+      results.push({ course_year: courseYear, outcome: "error", message });
+    }
+  }
+  return results;
+}
+
+/** Bootstraps the caches (if needed) and starts the periodic refresh loop. Idempotent. */
 export function startScheduler(): void {
   const globalRef = globalThis as typeof globalThis & { __fcimScheduler?: NodeJS.Timeout };
   if (globalRef.__fcimScheduler) return;
 
   const tick = () => {
-    checkForUpdates().catch((error) => log.error("scheduler tick failed", { error: errorMessage(error) }));
+    void refreshAllCourses();
   };
   globalRef.__fcimScheduler = setInterval(tick, config.refreshIntervalMs);
   globalRef.__fcimScheduler.unref?.();
-  log.info("scheduler started", { intervalMinutes: config.refreshIntervalMs / 60_000 });
+  log.info("scheduler started", {
+    intervalMinutes: config.refreshIntervalMs / 60_000,
+    courses: [...SUPPORTED_COURSE_YEARS],
+  });
   // Initial bootstrap runs immediately but does not block server startup.
   setTimeout(tick, 0);
 }

@@ -1,10 +1,13 @@
 /**
- * A deployment is pinned to one course year (SCHEDULE_COURSE_YEAR). Whatever happens to
- * discovery, it must never install a schedule that belongs to a different one.
+ * Each course slot holds exactly one course year's timetable. Whatever happens to
+ * discovery, seeding or an authenticated recovery, a schedule that belongs to another
+ * course year must never be installed — and one course's failure must never disturb
+ * the other's data.
  *
- * Everything here runs as an Anul II deployment while the only real PDF available
- * anywhere — packaged seed, repository mirror, even the discovered document — is the
- * bundled Anul I timetable. Nothing may be served in that situation.
+ * Everything here runs on a deployment that serves Anul I *and* Anul II while the only
+ * real PDF available anywhere — packaged seed, repository mirror, even the discovered
+ * document — is the bundled Anul I timetable. Nothing may reach Anul II readers in that
+ * situation, and Anul I must keep working throughout.
  */
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +15,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 // Type-only: erased at compile time, so it cannot import the app before the env below is set.
 import type { NextRequest } from "next/server";
+import type { Schedule } from "@/lib/models";
 
 const SEED_HASH = "52e7f14be27a996e17d0614c1f9fe769d63bdf76876fce6d4fc60f026bf8c015";
 const SEED_MIRROR_URL =
@@ -19,36 +23,39 @@ const SEED_MIRROR_URL =
 const tempDir = await mkdtemp(path.join(tmpdir(), "fcim-course2-"));
 const packagedSeedPath = path.join(tempDir, "packaged-seed.pdf");
 
-process.env.SCHEDULE_COURSE_YEAR = "2";
+process.env.SCHEDULE_COURSES = "1,2";
 process.env.SCHEDULE_DATA_DIR = tempDir;
 process.env.DATABASE_URL = "";
 process.env.SCHEDULE_WAYBACK_FALLBACK = "0";
+process.env.SCHEDULE_ADMIN_TOKEN = "test-admin-token";
 process.env.SCHEDULE_SEED_PDF = packagedSeedPath;
 process.env.SCHEDULE_SEED_PDF_MIRROR_URL = SEED_MIRROR_URL;
 process.env.SCHEDULE_SEED_PDF_SHA256 = SEED_HASH;
 
 const { NextRequest: NextRequestCtor } = await import("next/server");
-const { config } = await import("@/lib/config");
+const { courseSeed, SUPPORTED_COURSE_YEARS } = await import("@/lib/courses");
 const { parsePdf, sha256 } = await import("@/lib/parser");
 const { checkForUpdates } = await import("@/lib/services/updater");
 const { buildStatus } = await import("@/lib/services/schedule-service");
 const { getCurrentSchedule, getSourceState, replaceCurrentSchedule, resetStorageCache, saveSourceState } =
   await import("@/lib/storage");
 const scheduleRoute = (await import("@/app/api/schedule/route")).GET;
+const adminRefresh = (await import("@/app/api/admin/refresh/route")).POST;
 
-/** The bundled Anul I PDF, i.e. the seed an Anul II deployment must refuse. */
+/** The bundled Anul I PDF, i.e. the seed Anul II must never receive. */
 const ANUL_I_SEED = path.join(__dirname, "..", "data", "seed", "anul_i_semestrul_i-9.pdf");
-/** An older published Anul I timetable, used as pre-existing (wrong-course) cache content. */
+/** An older published Anul I timetable, used as pre-existing cache content. */
 const ANUL_I_OLD = path.join(__dirname, "fixtures", "anul_i_semestrul_i-5.pdf");
 const PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
 const WORDPRESS_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
 const OLD_SEED_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-5.pdf";
+const NEW_SEED_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf";
 const ANUL_II_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_ii_semestrul_iii-8.pdf";
 const AUTUMN_2026 = new Date("2026-09-15T12:00:00.000Z");
 
 let seedBytes: Uint8Array;
 let oldBytes: Uint8Array;
-let oldSchedule: Awaited<ReturnType<typeof parsePdf>>["schedule"];
+let oldSchedule: Schedule;
 
 beforeAll(async () => {
   vi.useFakeTimers();
@@ -67,8 +74,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   vi.unstubAllGlobals();
   await Promise.all([
-    rm(path.join(tempDir, "current_schedule.json"), { force: true }),
-    rm(path.join(tempDir, "metadata.json"), { force: true }),
+    rm(path.join(tempDir, "courses"), { recursive: true, force: true }),
     rm(packagedSeedPath, { force: true }),
   ]);
   resetStorageCache();
@@ -109,57 +115,67 @@ function blockedDiscovery(): Record<string, Route> {
   return { [PAGE_URL]: challenge, [WORDPRESS_URL]: challenge };
 }
 
-/** Nothing may reach a reader while the deployment has no schedule of its own course year. */
-async function expectNothingServed() {
-  expect(await getCurrentSchedule()).toBeNull();
-  const status = await buildStatus();
+function adminRequest(body: unknown): NextRequest {
+  return new NextRequestCtor(new URL("/api/admin/refresh", "http://localhost:8000"), {
+    method: "POST",
+    headers: { authorization: "Bearer test-admin-token", "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }) as NextRequest;
+}
+
+/** Nothing may reach a reader of a course that has no schedule of its own course year. */
+async function expectNothingServed(courseYear: number) {
+  expect(await getCurrentSchedule(courseYear)).toBeNull();
+  const status = await buildStatus(courseYear);
   expect(status.has_schedule).toBe(false);
   expect(status.schedule).toBeNull();
 
-  const request = new NextRequestCtor(new URL("/api/schedule", "http://localhost:8000")) as NextRequest;
+  const request = new NextRequestCtor(
+    new URL(`/api/schedule?course=${courseYear}`, "http://localhost:8000"),
+  ) as NextRequest;
   const response = await scheduleRoute(request);
   expect(response.status).toBe(503);
   expect(await response.text()).not.toMatch(/SI-261/);
 }
 
-describe("wrong-course seed fallback", () => {
-  it("is configured as an Anul II deployment", () => {
-    expect(config.courseYear).toBe(2);
+describe("wrong-course installation guard", () => {
+  it("serves both courses, and only Anul I has a bundled seed", () => {
+    expect([...SUPPORTED_COURSE_YEARS]).toEqual([1, 2]);
+    expect(courseSeed(1)).not.toBeNull();
+    // Anul II has no verified bundled PDF: it must stay unavailable rather than borrow one.
+    expect(courseSeed(2)).toBeNull();
   });
 
-  it("refuses the packaged Anul I seed on a cold start and installs nothing", async () => {
+  it("installs nothing for Anul II on a cold start, even with the Anul I seed on disk", async () => {
     await writeFile(packagedSeedPath, seedBytes);
     const calls = stubFetch(blockedDiscovery());
 
-    const result = await checkForUpdates();
+    const result = await checkForUpdates(2);
 
+    expect(result.course_year).toBe(2);
     expect(result.outcome).toBe("error");
     expect(result.message).toMatch(/Cloudflare challenge/);
-    expect(result.message).toMatch(/course year mismatch/);
-    // The seed was read from disk, so the mirror was never needed.
+    expect(result.message).toMatch(/no bundled seed PDF is available for course year 2/);
+    // The Anul I seed is never even read for Anul II, and the mirror is never contacted.
     expect(calls).not.toContain(SEED_MIRROR_URL);
-    await expectNothingServed();
+    await expectNothingServed(2);
 
-    const state = await getSourceState();
+    const state = await getSourceState(2);
     expect(state).toMatchObject({ last_result: "error", current_pdf_url: null, current_pdf_hash: null });
     expect(state.last_error).toMatch(/Cloudflare challenge/);
-    expect(state.last_error).toMatch(/course year mismatch/);
     expect(state.last_error_at).not.toBeNull();
   });
 
-  it("refuses the repository mirror seed even though its SHA-256 matches", async () => {
-    // No packaged and no image seed on disk: readBundledSeed falls through to the mirror.
+  it("never reaches for the Anul I repository mirror on behalf of Anul II", async () => {
+    // No packaged and no image seed on disk: for course 1 this is where the mirror is fetched.
     const calls = stubFetch({ ...blockedDiscovery(), [SEED_MIRROR_URL]: { body: seedBytes } });
 
-    const result = await checkForUpdates();
+    const result = await checkForUpdates(2);
 
     expect(sha256(seedBytes)).toBe(SEED_HASH);
-    expect(calls).toContain(SEED_MIRROR_URL);
+    expect(calls).not.toContain(SEED_MIRROR_URL);
     expect(result.outcome).toBe("error");
-    expect(result.message).toMatch(/course year mismatch/);
-    expect(result.message).not.toMatch(/SHA-256 mismatch/);
-    await expectNothingServed();
-    expect((await getSourceState()).last_error).toMatch(/course year mismatch/);
+    await expectNothingServed(2);
   });
 
   it("refuses a discovered PDF whose contents belong to another course year", async () => {
@@ -174,35 +190,96 @@ describe("wrong-course seed fallback", () => {
       [ANUL_II_URL]: { body: seedBytes, headers: { "content-type": "application/pdf" } },
     });
 
-    const result = await checkForUpdates();
+    const result = await checkForUpdates(2);
 
     expect(result.outcome).toBe("rejected");
     expect(result.message).toMatch(/course year mismatch/);
-    await expectNothingServed();
-    const state = await getSourceState();
+    expect(result.message).toMatch(/course year 1/);
+    await expectNothingServed(2);
+    const state = await getSourceState(2);
     expect(state.last_result).toBe("rejected");
     expect(state.last_error).toMatch(/course year mismatch/);
   });
 
-  it("never promotes a newer Anul I seed over data already on disk", async () => {
+  it("refuses an authenticated Anul I recovery requested for Anul II and leaves both courses alone", async () => {
+    // Anul I is healthy and cached; Anul II holds nothing.
     await writeFile(packagedSeedPath, seedBytes);
-    await replaceCurrentSchedule(oldSchedule);
-    await saveSourceState({
+    stubFetch(blockedDiscovery());
+    expect((await checkForUpdates(1)).outcome).toBe("seeded");
+    const anulIHash = (await getCurrentSchedule(1))?.metadata.source_pdf_hash;
+    const anulIState = { ...(await getSourceState(1)) };
+
+    stubFetch({ [NEW_SEED_URL]: { body: seedBytes, headers: { "content-type": "application/pdf" } } });
+    const payload = await (await adminRefresh(adminRequest({ course: 2, pdf_url: NEW_SEED_URL }))).json();
+
+    expect(payload).toMatchObject({ course_year: 2, outcome: "rejected" });
+    expect(payload.message).toMatch(/course year mismatch/);
+    await expectNothingServed(2);
+    // Anul I is untouched: same schedule, same source state.
+    expect((await getCurrentSchedule(1))?.metadata.source_pdf_hash).toBe(anulIHash);
+    expect({ ...(await getSourceState(1)) }).toEqual(anulIState);
+  });
+
+  it("requires an explicit course before it will recover from a PDF URL", async () => {
+    const response = await adminRefresh(adminRequest({ pdf_url: NEW_SEED_URL }));
+    expect(response.status).toBe(400);
+    const payload = (await response.json()) as { error: string; supported_courses: number[] };
+    expect(payload.error).toMatch(/course is required/);
+    expect(payload.supported_courses).toEqual([1, 2]);
+  });
+
+  it("rejects a refresh for a course this deployment does not serve", async () => {
+    const response = await adminRefresh(adminRequest({ course: 3 }));
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toMatch(/unknown course "3"/);
+  });
+
+  it("keeps the Anul I seed path working while Anul II stays unavailable", async () => {
+    await writeFile(packagedSeedPath, seedBytes);
+    stubFetch(blockedDiscovery());
+
+    const anulI = await checkForUpdates(1);
+    const anulII = await checkForUpdates(2);
+
+    expect(anulI).toMatchObject({ course_year: 1, outcome: "seeded", pdf_url: NEW_SEED_URL });
+    const served = await getCurrentSchedule(1);
+    expect(served?.metadata).toMatchObject({ course_year: 1, source_kind: "seed" });
+    expect(served?.groups).toHaveLength(41);
+    expect(anulII.outcome).toBe("error");
+    await expectNothingServed(2);
+  });
+
+  it("never promotes another course's packaged seed over a cached schedule", async () => {
+    // Anul II holds a seed-sourced schedule of its own course year; the packaged Anul I
+    // seed is newer by revision. Promotion is the one seed path that runs with a schedule
+    // already present, and it must not cross course boundaries.
+    await writeFile(packagedSeedPath, seedBytes);
+    const anulIICache: Schedule = {
+      ...oldSchedule,
+      metadata: { ...oldSchedule.metadata, course_year: 2, source_pdf_url: OLD_SEED_URL, source_kind: "seed" },
+    };
+    await replaceCurrentSchedule(2, anulIICache);
+    await saveSourceState(2, {
       current_pdf_url: OLD_SEED_URL,
-      current_pdf_hash: oldSchedule.metadata.source_pdf_hash,
+      current_pdf_hash: anulIICache.metadata.source_pdf_hash,
       last_result: "seeded",
     });
     stubFetch(blockedDiscovery());
 
-    expect((await checkForUpdates()).outcome).toBe("error");
+    expect((await checkForUpdates(2)).outcome).toBe("error");
 
-    // Promotion is the one seed path that runs with a schedule already present; the newer
-    // packaged Anul I seed must not replace what is on disk.
-    const served = await getCurrentSchedule();
-    expect(served?.metadata.source_pdf_hash).toBe(oldSchedule.metadata.source_pdf_hash);
+    const served = await getCurrentSchedule(2);
+    expect(served?.metadata.source_pdf_hash).toBe(anulIICache.metadata.source_pdf_hash);
     expect(served?.metadata.source_pdf_url).toBe(OLD_SEED_URL);
+    expect(served?.metadata.course_year).toBe(2);
     expect(sha256(seedBytes)).not.toBe(served?.metadata.source_pdf_hash);
     expect(oldBytes.byteLength).toBeGreaterThan(0);
-    expect((await getSourceState()).current_pdf_url).toBe(OLD_SEED_URL);
+    expect((await getSourceState(2)).current_pdf_url).toBe(OLD_SEED_URL);
+  });
+
+  it("refuses to write a schedule into a slot of a different course year", async () => {
+    // The last line of defence, below the updater's guard: storage checks the document itself.
+    await expect(replaceCurrentSchedule(2, oldSchedule)).rejects.toThrow(/course year 1 schedule under course year 2/);
+    expect(await getCurrentSchedule(2)).toBeNull();
   });
 });

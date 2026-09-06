@@ -6,5 +6,9 @@ debug
 .test-data
 data/*.json
 data/*.tmp
+data/courses
 tests
+tmp
+drizzle
 *.log
+*.pem

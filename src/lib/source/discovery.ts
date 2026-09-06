@@ -1,10 +1,13 @@
 /**
  * Source discovery: read the official FCIM schedule page, locate the
- * "Ciclul I, Licență - învățământ cu frecvență" section and resolve the
- * current "Anul I" semester PDF. Nothing here is hard-coded to a file name.
+ * "Ciclul I, Licență - învățământ cu frecvență" section and resolve the current
+ * semester PDF of the requested course year. Nothing here is hard-coded to a file
+ * name, and the function is pure: two courses discover from the same HTML without
+ * sharing any state.
  */
 import * as cheerio from "cheerio";
 import { config } from "@/lib/config";
+import { DEFAULT_COURSE_YEAR } from "@/lib/courses";
 import { cleanText } from "@/lib/parser/normalizer";
 import { pdfRevisionFromUrl } from "@/lib/source/revision";
 
@@ -66,7 +69,7 @@ export function semesterForSeason(courseYear: number, season: "autumn" | "spring
   return `Semestrul ${toRoman(year * 2 - (season === "autumn" ? 1 : 0))}`;
 }
 
-export function discoverPdf(html: string, courseYear = config.courseYear, now = new Date()): DiscoveredPdf {
+export function discoverPdf(html: string, courseYear = DEFAULT_COURSE_YEAR, now = new Date()): DiscoveredPdf {
   const $ = cheerio.load(html);
   const year = normalizeCourseYear(courseYear);
   const roman = toRoman(year);

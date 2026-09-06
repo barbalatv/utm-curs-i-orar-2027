@@ -5,6 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import { config } from "@/lib/config";
+import { DEFAULT_COURSE_YEAR } from "@/lib/courses";
 import { getLogger } from "@/lib/logger";
 import type { Schedule, ScheduleMetadata } from "@/lib/models";
 import { buildCells, type TableCell } from "./cell-builder";
@@ -21,6 +22,10 @@ export interface Provenance {
   source_pdf_url: string;
   source_kind: ScheduleMetadata["source_kind"];
   downloaded_at: string;
+  /** Course year the caller asked for. Only fills the gap when the PDF prints no title;
+   *  a title that names its own course year always wins, which is what the updater's
+   *  course guard then compares against the requested course. */
+  course_year?: number;
   etag?: string | null;
   last_modified?: string | null;
   academic_year?: string | null;
@@ -73,7 +78,7 @@ export async function parsePdf(pdfBytes: Uint8Array, provenance: Provenance): Pr
     // The title printed inside the document describes the document; provenance only fills gaps.
     academic_year: titleInfo.academicYear ?? provenance.academic_year ?? null,
     semester: resolveSemester(titleInfo.semester, provenance),
-    course_year: titleInfo.courseYear ?? config.courseYear,
+    course_year: titleInfo.courseYear ?? provenance.course_year ?? DEFAULT_COURSE_YEAR,
     source_page_url: provenance.source_page_url,
     source_pdf_url: provenance.source_pdf_url,
     source_pdf_hash: sha256(pdfBytes),

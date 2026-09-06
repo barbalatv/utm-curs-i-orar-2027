@@ -79,8 +79,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   vi.unstubAllGlobals();
   await Promise.all([
-    rm(path.join(tempDir, "current_schedule.json"), { force: true }),
-    rm(path.join(tempDir, "metadata.json"), { force: true }),
+    rm(path.join(tempDir, "courses", "1", "current_schedule.json"), { force: true }),
+    rm(path.join(tempDir, "courses", "1", "metadata.json"), { force: true }),
     rm(packagedSeedPath, { force: true }),
   ]);
   resetStorageCache();
@@ -144,8 +144,8 @@ async function persistOldSchedule(sourceKind: "seed" | "live" | "manual" = "seed
     ...oldSeedSchedule,
     metadata: { ...oldSeedSchedule.metadata, source_kind: sourceKind },
   };
-  await replaceCurrentSchedule(schedule);
-  await saveSourceState({
+  await replaceCurrentSchedule(1, schedule);
+  await saveSourceState(1, {
     current_pdf_url: OLD_SEED_URL,
     current_pdf_hash: schedule.metadata.source_pdf_hash,
     last_check_at: "2026-09-01T00:00:00.000Z",
@@ -407,13 +407,13 @@ describe("automatic update follows a newly published revision", () => {
       [republished]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v10"' } },
     });
 
-    const result = await checkForUpdates();
+    const result = await checkForUpdates(1);
     expect(result.outcome).toBe("updated");
     expect(result.pdf_url).toBe(republished);
     expect(calls.some((call) => call.url === republished)).toBe(true);
     expect(calls.some((call) => call.url === superseded)).toBe(false);
-    expect((await getCurrentSchedule())!.metadata.source_pdf_url).toBe(republished);
-    expect((await getSourceState()).current_pdf_url).toBe(republished);
+    expect((await getCurrentSchedule(1))!.metadata.source_pdf_url).toBe(republished);
+    expect((await getSourceState(1)).current_pdf_url).toBe(republished);
   });
 });
 
@@ -471,9 +471,9 @@ describe("test_hash_change_detection & test_invalid_pdf_keeps_old_schedule", () 
       [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
       [PDF_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v1"' } },
     });
-    const first = await checkForUpdates();
+    const first = await checkForUpdates(1);
     expect(first.outcome).toBe("updated");
-    const initial = await getCurrentSchedule();
+    const initial = await getCurrentSchedule(1);
     expect(initial).not.toBeNull();
     expect(initial!.metadata.source_pdf_url).toBe(PDF_URL);
     expect(initial!.metadata.source_pdf_hash).toBe(sha256(pdfBytes));
@@ -484,7 +484,7 @@ describe("test_hash_change_detection & test_invalid_pdf_keeps_old_schedule", () 
       [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
       [PDF_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v1"' } },
     });
-    const second = await checkForUpdates();
+    const second = await checkForUpdates(1);
     expect(second.outcome).toBe("unchanged");
     expect(calls.find((call) => call.url === PDF_URL)?.headers["if-none-match"]).toBe('"v1"');
 
@@ -493,16 +493,16 @@ describe("test_hash_change_detection & test_invalid_pdf_keeps_old_schedule", () 
       [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
       [PDF_URL]: { status: 304, headers: { etag: '"v1"' } },
     });
-    expect((await checkForUpdates()).outcome).toBe("unchanged");
+    expect((await checkForUpdates(1)).outcome).toBe("unchanged");
 
     // 4. New PDF content at the same URL → hash differs → re-parsed and replaced.
     stubFetch({
       [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
       [PDF_URL]: { body: pdfBytesB, headers: { "content-type": "application/pdf", etag: '"v2"' } },
     });
-    const fourth = await checkForUpdates();
+    const fourth = await checkForUpdates(1);
     expect(fourth.outcome).toBe("updated");
-    const replaced = await getCurrentSchedule();
+    const replaced = await getCurrentSchedule(1);
     expect(replaced!.metadata.source_pdf_hash).toBe(sha256(pdfBytesB));
     expect(replaced!.metadata.pdf_title).toMatch(/SEMESTRUL I$/);
 
@@ -511,29 +511,29 @@ describe("test_hash_change_detection & test_invalid_pdf_keeps_old_schedule", () 
       [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
       [PDF_URL]: { body: new TextEncoder().encode("%PDF-1.7 garbage garbage garbage"), headers: { "content-type": "application/pdf", etag: '"v3"' } },
     });
-    const fifth = await checkForUpdates();
+    const fifth = await checkForUpdates(1);
     expect(fifth.outcome).toBe("rejected");
-    const kept = await getCurrentSchedule();
+    const kept = await getCurrentSchedule(1);
     expect(kept!.metadata.source_pdf_hash).toBe(sha256(pdfBytesB));
-    const state = await getSourceState();
+    const state = await getSourceState(1);
     expect(state.last_result).toBe("rejected");
     expect(state.last_error).toMatch(/parser failed/);
     expect(state.current_pdf_hash).toBe(sha256(pdfBytesB));
 
     // 6. Site unreachable (Cloudflare 403) → error recorded, schedule still served.
     stubFetch({ [PAGE_URL]: { status: 403, body: "Just a moment...", headers: { "cf-mitigated": "challenge" } } });
-    const sixth = await checkForUpdates();
+    const sixth = await checkForUpdates(1);
     expect(sixth.outcome).toBe("error");
     expect(sixth.message).toMatch(/Cloudflare challenge/);
-    expect((await getCurrentSchedule())!.metadata.source_pdf_hash).toBe(sha256(pdfBytesB));
-    const discoveryFailure = await getSourceState();
+    expect((await getCurrentSchedule(1))!.metadata.source_pdf_hash).toBe(sha256(pdfBytesB));
+    const discoveryFailure = await getSourceState(1);
     expect(discoveryFailure.last_result).toBe("error");
     expect(discoveryFailure.last_error).toMatch(/Cloudflare challenge/);
     expect(discoveryFailure.last_error_at).not.toBeNull();
 
     // Cache files exist on disk and survive a cold in-memory reset.
     resetStorageCache();
-    const reloaded = await getCurrentSchedule();
+    const reloaded = await getCurrentSchedule(1);
     expect(reloaded!.metadata.source_pdf_hash).toBe(sha256(pdfBytesB));
   });
 });
@@ -545,30 +545,30 @@ describe("test_parser_upgrade_reparses_cached_pdf", () => {
       [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
       [PDF_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v1"' } },
     });
-    expect((await checkForUpdates()).outcome).toBe("updated");
+    expect((await checkForUpdates(1)).outcome).toBe("updated");
 
     // Pretend the cache on disk was written by the previous parser release. Fixing a
     // parsing bug must reach users without waiting for the university to republish.
-    const cached = await getCurrentSchedule();
-    await replaceCurrentSchedule({ ...cached!, metadata: { ...cached!.metadata, parser_version: "0.0.1" } });
+    const cached = await getCurrentSchedule(1);
+    await replaceCurrentSchedule(1, { ...cached!, metadata: { ...cached!.metadata, parser_version: "0.0.1" } });
     resetStorageCache();
 
     const calls = stubFetch({
       [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
       [PDF_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v1"' } },
     });
-    const upgraded = await checkForUpdates();
+    const upgraded = await checkForUpdates(1);
     expect(upgraded.outcome).toBe("updated");
     // The conditional headers are dropped, otherwise a 304 would hide the PDF body.
     expect(calls.find((call) => call.url === PDF_URL)?.headers["if-none-match"]).toBeUndefined();
-    expect((await getCurrentSchedule())!.metadata.parser_version).not.toBe("0.0.1");
+    expect((await getCurrentSchedule(1))!.metadata.parser_version).not.toBe("0.0.1");
 
     // A second run finds a matching parser version again and stops re-parsing.
     stubFetch({
       [PAGE_URL]: { body: pageHtml, headers: { "content-type": "text/html" } },
       [PDF_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf", etag: '"v1"' } },
     });
-    expect((await checkForUpdates()).outcome).toBe("unchanged");
+    expect((await checkForUpdates(1)).outcome).toBe("unchanged");
   });
 });
 
@@ -607,9 +607,9 @@ describe("automatic update queueing", () => {
       }),
     );
 
-    const ordinary = checkForUpdates();
+    const ordinary = checkForUpdates(1);
     await firstPageStarted.promise;
-    const forced = checkForUpdates({ force: true });
+    const forced = checkForUpdates(1, { force: true });
 
     await Promise.resolve();
     await Promise.resolve();
@@ -660,9 +660,9 @@ describe("automatic update queueing", () => {
       }),
     );
 
-    const first = checkForUpdates();
+    const first = checkForUpdates(1);
     await firstPageStarted.promise;
-    const second = checkForUpdates();
+    const second = checkForUpdates(1);
     await Promise.resolve();
     expect(pageRequests).toBe(1);
 
@@ -682,22 +682,22 @@ describe("test_remote_seed_bootstrap", () => {
     resetStorageCache();
     const calls = stubFetch(cloudflareDiscoveryRoutes());
 
-    const result = await checkForUpdates();
+    const result = await checkForUpdates(1);
 
     expect(result).toMatchObject({ outcome: "seeded", pdf_url: NEW_SEED_URL, source_pdf_hash: NEW_SEED_HASH });
-    const schedule = await getCurrentSchedule();
+    const schedule = await getCurrentSchedule(1);
     expect(schedule?.metadata).toMatchObject({ course_year: 1, source_kind: "seed", source_pdf_hash: NEW_SEED_HASH });
     expect(schedule?.groups).toHaveLength(41);
     expect(schedule?.lessons).toHaveLength(449);
     // A seed on disk means the repository mirror is never contacted.
     expect(calls.some((call) => call.url === SEED_MIRROR_URL)).toBe(false);
-    expect((await getSourceState())).toMatchObject({ last_result: "seeded", current_pdf_url: NEW_SEED_URL });
+    expect((await getSourceState(1))).toMatchObject({ last_result: "seeded", current_pdf_url: NEW_SEED_URL });
   });
 
   it("loads the repository mirror when the live sources and local seed are unavailable", async () => {
     await Promise.all([
-      rm(path.join(tempDir, "current_schedule.json"), { force: true }),
-      rm(path.join(tempDir, "metadata.json"), { force: true }),
+      rm(path.join(tempDir, "courses", "1", "current_schedule.json"), { force: true }),
+      rm(path.join(tempDir, "courses", "1", "metadata.json"), { force: true }),
     ]);
     resetStorageCache();
 
@@ -707,10 +707,10 @@ describe("test_remote_seed_bootstrap", () => {
       [SEED_MIRROR_URL]: { body: newSeedBytes, headers: { "content-type": "application/octet-stream" } },
     });
 
-    const result = await checkForUpdates();
+    const result = await checkForUpdates(1);
     expect(result.outcome).toBe("seeded");
     expect(calls.some((call) => call.url === SEED_MIRROR_URL)).toBe(true);
-    const schedule = await getCurrentSchedule();
+    const schedule = await getCurrentSchedule(1);
     expect(schedule?.metadata.source_kind).toBe("seed");
     expect(schedule?.metadata.source_pdf_hash).toBe(NEW_SEED_HASH);
     expect(schedule?.metadata.course_year).toBe(1);
@@ -725,13 +725,13 @@ describe("test_remote_seed_bootstrap", () => {
       [SEED_MIRROR_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf" } },
     });
 
-    const result = await checkForUpdates();
+    const result = await checkForUpdates(1);
     expect(result.outcome).toBe("error");
     expect(result.message).toMatch(/seed mirror SHA-256 mismatch/);
     expect(calls.some((call) => call.url === SEED_MIRROR_URL)).toBe(true);
-    expect(await getCurrentSchedule()).toBeNull();
+    expect(await getCurrentSchedule(1)).toBeNull();
 
-    const failedState = await getSourceState();
+    const failedState = await getSourceState(1);
     expect(failedState).toMatchObject({
       current_pdf_url: null,
       current_pdf_hash: null,
@@ -746,9 +746,9 @@ describe("test_remote_seed_bootstrap", () => {
       ...cloudflareDiscoveryRoutes(),
       [SEED_MIRROR_URL]: { body: pdfBytes, headers: { "content-type": "application/pdf" } },
     });
-    expect((await checkForUpdates()).outcome).toBe("error");
+    expect((await checkForUpdates(1)).outcome).toBe("error");
     expect(cachedCalls.some((call) => call.url === SEED_MIRROR_URL)).toBe(false);
-    expect((await getCurrentSchedule())?.metadata.source_pdf_hash).toBe(previous.metadata.source_pdf_hash);
+    expect((await getCurrentSchedule(1))?.metadata.source_pdf_hash).toBe(previous.metadata.source_pdf_hash);
   });
 });
 
@@ -781,7 +781,7 @@ describe("authenticated explicit-PDF recovery", () => {
     ];
     for (const pdfUrl of invalidUrls) {
       const payload = await responseJson<{ error: string }>(
-        await adminRefresh(adminRequest({ pdf_url: pdfUrl, force: true })),
+        await adminRefresh(adminRequest({ course: 1, pdf_url: pdfUrl, force: true })),
         400,
       );
       expect(payload.error).toMatch(/HTTPS fcim\.utm\.md timetable PDF/);
@@ -797,11 +797,11 @@ describe("authenticated explicit-PDF recovery", () => {
         headers: { location: "https://example.com/redirected.pdf" },
       },
     });
-    const redirected = await refreshFromExplicitPdf({ pdfUrl: NEW_SEED_URL, force: true });
+    const redirected = await refreshFromExplicitPdf(1, { pdfUrl: NEW_SEED_URL, force: true });
     expect(redirected.outcome).toBe("error");
     expect(redirected.message).toMatch(/allow-list|official FCIM timetable PDF path/);
     expect(redirectCalls.map((call) => call.url)).toEqual([NEW_SEED_URL]);
-    expect((await getCurrentSchedule())?.metadata.source_pdf_hash).toBe(old.metadata.source_pdf_hash);
+    expect((await getCurrentSchedule(1))?.metadata.source_pdf_hash).toBe(old.metadata.source_pdf_hash);
 
     stubFetch({
       [NEW_SEED_URL]: {
@@ -809,10 +809,10 @@ describe("authenticated explicit-PDF recovery", () => {
         headers: { "content-type": "text/html", "cf-mitigated": "challenge" },
       },
     });
-    const challenged = await refreshFromExplicitPdf({ pdfUrl: NEW_SEED_URL, force: true });
+    const challenged = await refreshFromExplicitPdf(1, { pdfUrl: NEW_SEED_URL, force: true });
     expect(challenged.outcome).toBe("error");
     expect(challenged.message).toMatch(/Cloudflare challenge/);
-    expect((await getCurrentSchedule())?.metadata.source_pdf_hash).toBe(old.metadata.source_pdf_hash);
+    expect((await getCurrentSchedule(1))?.metadata.source_pdf_hash).toBe(old.metadata.source_pdf_hash);
 
     stubFetch({
       [NEW_SEED_URL]: {
@@ -820,10 +820,10 @@ describe("authenticated explicit-PDF recovery", () => {
         headers: { "content-type": "application/pdf" },
       },
     });
-    const masquerading = await refreshFromExplicitPdf({ pdfUrl: NEW_SEED_URL, force: true });
+    const masquerading = await refreshFromExplicitPdf(1, { pdfUrl: NEW_SEED_URL, force: true });
     expect(masquerading.outcome).toBe("error");
     expect(masquerading.message).toMatch(/not a PDF/);
-    expect((await getCurrentSchedule())?.metadata.source_pdf_hash).toBe(old.metadata.source_pdf_hash);
+    expect((await getCurrentSchedule(1))?.metadata.source_pdf_hash).toBe(old.metadata.source_pdf_hash);
   });
 
   it("keeps the previous schedule when the explicit PDF cannot be parsed", async () => {
@@ -834,16 +834,16 @@ describe("authenticated explicit-PDF recovery", () => {
         headers: { "content-type": "application/pdf" },
       },
     });
-    const result = await refreshFromExplicitPdf({ pdfUrl: NEW_SEED_URL, force: true });
+    const result = await refreshFromExplicitPdf(1, { pdfUrl: NEW_SEED_URL, force: true });
     expect(result.outcome).toBe("rejected");
     expect(result.message).toMatch(/parser failed/);
-    expect((await getCurrentSchedule())?.metadata.source_pdf_hash).toBe(old.metadata.source_pdf_hash);
+    expect((await getCurrentSchedule(1))?.metadata.source_pdf_hash).toBe(old.metadata.source_pdf_hash);
   });
 
   it("keeps the previous schedule when real parsing succeeds but validation rejects the candidate", async () => {
     const old = await persistOldSchedule("live");
     const inflated = { ...old, lessons: [...old.lessons, ...old.lessons] };
-    await replaceCurrentSchedule(inflated);
+    await replaceCurrentSchedule(1, inflated);
     stubFetch({
       [NEW_SEED_URL]: {
         body: newSeedBytes,
@@ -851,18 +851,18 @@ describe("authenticated explicit-PDF recovery", () => {
       },
     });
 
-    const result = await refreshFromExplicitPdf({ pdfUrl: NEW_SEED_URL, force: true });
+    const result = await refreshFromExplicitPdf(1, { pdfUrl: NEW_SEED_URL, force: true });
     expect(result.outcome).toBe("rejected");
     expect(result.message).toMatch(/validation failed: lesson count dropped/);
-    expect((await getCurrentSchedule())?.lessons).toHaveLength(inflated.lessons.length);
+    expect((await getCurrentSchedule(1))?.lessons).toHaveLength(inflated.lessons.length);
   });
 
   it("recovers through the real pipeline while preserving the discovery failure diagnostic", async () => {
     const old = await persistOldSchedule("seed");
     stubFetch(cloudflareDiscoveryRoutes());
-    const automatic = await checkForUpdates();
+    const automatic = await checkForUpdates(1);
     expect(automatic.outcome).toBe("error");
-    expect((await getSourceState()).last_error).toMatch(/Cloudflare challenge/);
+    expect((await getSourceState(1)).last_error).toMatch(/Cloudflare challenge/);
 
     stubFetch({
       [NEW_SEED_URL]: {
@@ -876,7 +876,7 @@ describe("authenticated explicit-PDF recovery", () => {
       source_pdf_hash: string;
       groups: number;
       lessons: number;
-    }>(await adminRefresh(adminRequest({ pdf_url: NEW_SEED_URL, force: true })));
+    }>(await adminRefresh(adminRequest({ course: 1, pdf_url: NEW_SEED_URL, force: true })));
     expect(result).toMatchObject({
       outcome: "updated",
       pdf_url: NEW_SEED_URL,
@@ -885,7 +885,7 @@ describe("authenticated explicit-PDF recovery", () => {
       lessons: 449,
     });
 
-    const served = await getCurrentSchedule();
+    const served = await getCurrentSchedule(1);
     expect(served?.metadata).toMatchObject({
       source_pdf_url: NEW_SEED_URL,
       source_pdf_hash: NEW_SEED_HASH,
@@ -895,7 +895,7 @@ describe("authenticated explicit-PDF recovery", () => {
     expect(served?.lessons).toHaveLength(449);
     expect(validateSchedule(served!, { previousLessonCount: old.lessons.length }).ok).toBe(true);
 
-    const state = await getSourceState();
+    const state = await getSourceState(1);
     expect(state).toMatchObject({
       current_pdf_url: NEW_SEED_URL,
       current_pdf_hash: NEW_SEED_HASH,
@@ -903,7 +903,7 @@ describe("authenticated explicit-PDF recovery", () => {
     });
     expect(state.last_error).toMatch(/Cloudflare challenge/);
 
-    const status = await buildStatus();
+    const status = await buildStatus(1);
     expect(status.schedule).toMatchObject({
       source_pdf_url: NEW_SEED_URL,
       source_pdf_hash: NEW_SEED_HASH,
@@ -922,11 +922,11 @@ describe("packaged seed promotion", () => {
     await persistOldSchedule("seed");
     stubFetch(cloudflareDiscoveryRoutes());
 
-    const result = await checkForUpdates();
+    const result = await checkForUpdates(1);
     expect(result.outcome).toBe("error");
     expect(result.message).toMatch(/Cloudflare challenge/);
 
-    const served = await getCurrentSchedule();
+    const served = await getCurrentSchedule(1);
     expect(served?.metadata).toMatchObject({
       source_pdf_url: NEW_SEED_URL,
       source_pdf_hash: NEW_SEED_HASH,
@@ -936,7 +936,7 @@ describe("packaged seed promotion", () => {
     expect(served?.lessons).toHaveLength(449);
     expect(served?.lessons.filter((lesson) => lesson.uncertain)).toHaveLength(0);
 
-    const status = await buildStatus();
+    const status = await buildStatus(1);
     expect(status.schedule).toMatchObject({
       source_pdf_url: NEW_SEED_URL,
       source_pdf_hash: NEW_SEED_HASH,
@@ -955,8 +955,8 @@ describe("packaged seed promotion", () => {
     const current = await persistOldSchedule(sourceKind);
     stubFetch(cloudflareDiscoveryRoutes());
 
-    expect((await checkForUpdates()).outcome).toBe("error");
-    const served = await getCurrentSchedule();
+    expect((await checkForUpdates(1)).outcome).toBe("error");
+    const served = await getCurrentSchedule(1);
     expect(served?.metadata).toMatchObject({
       source_pdf_url: OLD_SEED_URL,
       source_pdf_hash: current.metadata.source_pdf_hash,

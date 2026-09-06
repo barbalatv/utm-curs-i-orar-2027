@@ -1,15 +1,26 @@
 ## API
 
+Every read endpoint below except `/api/health` takes an optional `course` parameter selecting the
+course year. Parsing is strict: **omitting the parameter entirely** means course 1, so a
+pre-multi-course client keeps working unchanged, and the only other accepted values are exactly `1`
+and `2`. Everything else is a `400` carrying `supported_courses` — including `course=` (present but
+empty), whitespace, `01`, `1.0`, `1x`, `0`, `-1`, `3`, and a repeated `course` parameter. A request
+this deployment cannot answer is never answered with another course's data.
+
 | Endpoint | Description |
 | --- | --- |
-| `GET /api/health` | liveness (`ok`, `has_schedule`) |
-| `GET /api/status` | schedule stats + updater state (last check, last error, result) |
-| `GET /api/groups` | groups discovered in the PDF with lesson counts |
-| `GET /api/schedule?group=SI-261&day=Luni&teacher=&subject=&room=&q=` | filtered lessons |
-| `GET /api/schedule/{group}` | one group, grouped `by_day` |
-| `GET /api/schedule/{group}/today` | today's lessons (Europe/Chisinau) |
-| `GET /api/source` | provenance: current PDF URL, hash, ETag, discovery kind |
-| `POST /api/admin/refresh[?force=1]` | authenticated maintenance re-check; optional JSON `pdf_url` selects a strictly validated official FCIM timetable PDF |
+| `GET /api/health` | deployment liveness: `ok` (process up), `has_schedule` (any course has data), `courses[]` (per-course availability) |
+| `GET /api/status?course=1` | that course's schedule stats + updater state (last check, last error, result), plus `supported_courses` |
+| `GET /api/groups?course=2` | groups of that course's PDF with lesson counts |
+| `GET /api/schedule?course=2&group=SI-251&day=Luni&teacher=&subject=&room=&q=` | filtered lessons of that course |
+| `GET /api/schedule/{group}?course=2` | one group, grouped `by_day`. The course comes from the query string: group names are unique inside a course, not across the faculty |
+| `GET /api/schedule/{group}/today?course=2` | today's lessons (Europe/Chisinau) |
+| `GET /api/source?course=2` | provenance: current PDF URL, hash, ETag, discovery kind |
+| `POST /api/admin/refresh[?force=1]` | authenticated maintenance re-check. JSON `course` selects the course year and is **required** whenever `pdf_url` is supplied; omitted on a plain discovery refresh it means course 1. Optional `pdf_url` selects a strictly validated official FCIM timetable PDF |
+
+`/api/health` deliberately reports no per-course error text: `ok` stays true while the process is
+serving, so an orchestrator does not restart a container over one broken timetable. A single course's
+diagnostics live in `/api/status?course=N`.
 
 ## Cloudflare discovery failures and recovery
 
@@ -27,13 +38,14 @@ curl -fsS https://utm-curs-i-orar-2027.onrender.com/api/status | jq '{schedule, 
 
 If automatic HTML discovery is unavailable, an administrator may ask the existing refresh endpoint
 to download one known official PDF directly. `SCHEDULE_ADMIN_TOKEN` must be configured, and the URL
-must use HTTPS, the exact host `fcim.utm.md`, and this path form:
+must name the course being recovered, use HTTPS, the exact host `fcim.utm.md`, and this path form:
 `/wp-content/uploads/sites/24/YYYY/MM/*.pdf`. Redirects are followed only while every destination
 still satisfies that same policy. The response must be a bounded PDF body beginning with `%PDF-`;
 HTML and Cloudflare challenge responses are rejected.
 
 ```bash
 export APP_URL=https://utm-curs-i-orar-2027.onrender.com
+export COURSE=1
 export PDF_URL=https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf
 curl -fsS -X POST "$APP_URL/api/admin/refresh" \
   -H "Authorization: Bearer $SCHEDULE_ADMIN_TOKEN" \
@@ -109,7 +121,7 @@ unknown. `week_parity` ∈ odd · even · both · unknown.
 ## Environment variables
 
 See `.env.example`. Key ones: `SCHEDULE_PAGE_URL`, `SCHEDULE_REFRESH_MINUTES` (30),
-`SCHEDULE_COURSE_YEAR` (1), `SCHEDULE_ODD_WEEK_ANCHOR` (Monday of an odd week – set once per
+`SCHEDULE_COURSES` (1,2), `SCHEDULE_DEFAULT_COURSE` (1), `SCHEDULE_ODD_WEEK_ANCHOR` (Monday of an odd week – set once per
 semester), `SCHEDULE_ALLOWED_HOSTS`, `SCHEDULE_WORDPRESS_FALLBACK`,
 `SCHEDULE_WAYBACK_FALLBACK`,
 `SCHEDULE_HTTP_TIMEOUT_MS`, `SCHEDULE_MAX_REDIRECTS`, `SCHEDULE_MAX_PDF_MB`, `SCHEDULE_DATA_DIR`,
@@ -117,7 +129,32 @@ semester), `SCHEDULE_ALLOWED_HOSTS`, `SCHEDULE_WORDPRESS_FALLBACK`,
 `SCHEDULE_SEED_PDF_SHA256`,
 `DATABASE_URL` (optional), `SCHEDULE_ADMIN_TOKEN`, `SCHEDULE_DISABLE_SCHEDULER`, `LOG_LEVEL`.
 
+Course configuration is validated at startup and the process refuses to boot on a bad value rather
+than falling back to course 1: `SCHEDULE_COURSES` must be a comma-separated list of known course
+years (`1`, `2`) with no empty, padded, zero-prefixed or duplicated entries, and
+`SCHEDULE_DEFAULT_COURSE` must name exactly one course that `SCHEDULE_COURSES` enables. The removed
+`SCHEDULE_COURSE_YEAR` is also a hard stop: if it is still set, startup fails with a message naming
+its replacement instead of quietly serving a different set of courses than the operator configured.
+
 `SCHEDULE_SEED_PDF_SHA256` pins only the remote mirror fallback. If an operator changes the mirror
 or the official provenance URL, they must set this value to the SHA-256 of the intended mirror
 bytes. Local packaged seed overrides continue through the normal parser and validator without
 requiring this mirror-specific pin.
+
+## PostgreSQL history schema
+
+The optional history store is versioned by checked-in migrations under `drizzle/`, applied against
+whatever `DATABASE_URL` points at — there is no hard-coded connection string.
+
+```bash
+DATABASE_URL=postgresql://user:pass@host:5432/db npm run db:migrate
+```
+
+| Migration | What it does |
+| --- | --- |
+| `0000_single_course_baseline` | the pre-multi-course table, `CREATE TABLE IF NOT EXISTS` so a database created by the old `drizzle-kit push` adopts the journal without losing history |
+| `0001_multi_course_scoping` | adds `course_year` (`DEFAULT 1 NOT NULL`, which backfills existing rows as Anul I — the course they actually describe), retires any duplicate current row per course, then adds a **partial unique index** on `course_year WHERE is_current` plus a `(course_year, created_at DESC)` lookup index |
+
+The partial unique index makes "one current version per course" a database invariant instead of a
+promise the application sequencing makes: two writers racing on the same course cannot both leave an
+`is_current` row behind. Authoring a new migration is `npm run db:generate` (offline, no URL needed).

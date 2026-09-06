@@ -3,13 +3,24 @@ import type { DayName, Lesson, ScheduleMetadata, TimeSlot } from "@/lib/models";
 
 export type { DayName, Lesson, TimeSlot };
 
+/** Course years this deployment serves, handed to the client by the server page. */
+export interface CourseOption {
+  course_year: number;
+  /** "Anul II" – what the switcher shows. */
+  label: string;
+  /** "II" – the compact badge next to the wordmark. */
+  roman: string;
+}
+
 export interface GroupsResponse {
+  course_year: number;
   groups: { name: string; program: string; lessons: number }[];
   count: number;
   updated_at: string;
 }
 
 export interface ScheduleResponse {
+  course_year: number;
   metadata: ScheduleMetadata;
   groups: string[];
   days: DayName[];
@@ -22,6 +33,9 @@ export interface ScheduleResponse {
 export interface StatusResponse {
   ok: boolean;
   has_schedule: boolean;
+  course_year: number;
+  course_label: string;
+  supported_courses: CourseOption[];
   schedule: {
     academic_year: string | null;
     semester: string | null;

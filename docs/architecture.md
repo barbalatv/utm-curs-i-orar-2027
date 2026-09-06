@@ -1,13 +1,58 @@
+## Courses
+
+One deployment serves several course years at once — `SCHEDULE_COURSES`, `1,2` today. A course year
+is a first-class key throughout the stateful half of the app:
+
+```
+course 1 ──▶ Schedule (Anul I PDF)  + SourceState + history rows
+course 2 ──▶ Schedule (Anul II PDF) + SourceState + history rows
+```
+
+The two aggregates are never merged: separate discovery, separate download, separate parse,
+separate files (`data/courses/<year>/`), separate `is_current` history row, separate error state.
+`src/lib/courses.ts` is the single registry — adding Anul III later is one entry there plus, if a
+verified PDF exists, its seed. What *is* shared is the deployment-wide week calendar
+(`SCHEDULE_ODD_WEEK_ANCHOR`): FCIM publishes one week-parity announcement for the whole faculty.
+
+Reads are parameterised rather than duplicated: `requireSchedule(courseYear)` and
+`buildStatus(courseYear)` are the only course-aware read entry points, and all filtering, sorting
+and day handling below them operates on lessons alone.
+
+A course year is only ever accepted, never coerced:
+
+  - **Configuration** is validated at import time. `SCHEDULE_COURSES` / `SCHEDULE_DEFAULT_COURSE`
+    must be plain decimal, known, non-duplicated course years, and the default must be one of the
+    enabled ones; anything else throws `CourseConfigError` and the process does not start. The
+    removed `SCHEDULE_COURSE_YEAR` is a hard stop with a migration message rather than a silent
+    ignore.
+  - **Public input** is parsed strictly. Only an entirely absent `?course=` means the default; the
+    only other accepted values are exactly `1` and `2`. Empty, padded, zero-prefixed, non-numeric,
+    unsupported and repeated parameters are 400s. `Number.parseInt` is not used anywhere on a course
+    value — it reads `"1x"` as 1, which is the silent resolution all of this exists to prevent.
+  - **Internal boundaries** re-check. `assertSupportedCourse` guards every exported storage entry
+    point and both read services, and the updater rejects rather than throws (it returns promises).
+    An unsupported year can therefore never create a namespace such as `data/courses/3`.
+
+The update coordinator — the serialization queue plus the per-course in-flight map — lives on
+`globalThis`, not in module scope. Next.js bundles the instrumentation hook separately from the
+route handlers, so this module is evaluated more than once in a single process; module-local state
+would give the scheduler and the API separate queues and the serialisation would be a fiction. The
+deployment remains single-process: this is shared process state, not a distributed lock.
+
 ## How auto-update works
 
 ```
 every SCHEDULE_REFRESH_MINUTES (default 30) + once at startup
   │
+  │  one tick refreshes each supported course in turn; a course that fails keeps its own
+  │  last-known-good schedule and its own diagnostics, and the next course is checked anyway
+  │
   ├─ GET official page ──(403/timeout)──▶ official WordPress REST page
   │                                      └─(failure)──▶ public Wayback copy (optional)
   │        │
   │        ▼
-  │  discover "Anul I" PDF link in "Ciclul I … frecvență" (+ academic year, semester, parity note)
+  │  discover the requested course's PDF link in "Ciclul I … frecvență" (+ academic year,
+  │  semester, parity note)
   │  and reject archive pages that do not contain the current academic year
   │        │
   │        ▼
@@ -16,13 +61,14 @@ every SCHEDULE_REFRESH_MINUTES (default 30) + once at startup
   │        │
   │        ├─ 304 or same SHA-256 (and same parser version) ─▶ record "unchanged", done
   │        ▼
-  │  parse ─▶ course year == SCHEDULE_COURSE_YEAR ─▶ validate (≥5 groups, all 5 days,
+  │  parse ─▶ course year == requested course ─▶ validate (≥5 groups, all 5 days,
   │           ≥30 lessons, times, geometry, ≤40 % drop vs previous version, uncertain ratio)
   │        │
   │        ├─ ok ─▶ atomic replace: tmp file → fsync → rename  (+ row in PostgreSQL history)
   │        └─ fail ─▶ keep previous schedule, store last_error, result = "rejected"
   │
-  ├─ on cold start with no cache and no network ─▶ parse bundled real FCIM PDF (source_kind = "seed")
+  ├─ on cold start with no cache and no network ─▶ parse that course's bundled real FCIM PDF
+  │    (source_kind = "seed"); a course without a seed stays unavailable and reports the failure
   │    └─ if only the remote mirror exists, require its configured SHA-256 before parsing
   │
   └─ persisted seed only + demonstrably newer same-context packaged seed
@@ -35,12 +81,13 @@ atomic-replace pipeline; it is not a second parser or storage path. Its URL poli
 stricter than automatic discovery: exact host `fcim.utm.md`, HTTPS, and
 `/wp-content/uploads/sites/24/YYYY/MM/*.pdf`, rechecked on every redirect.
 
-One deployment serves exactly one course year. Every candidate schedule — live, Wayback,
-authenticated `manual`, packaged seed, image seed, repository mirror seed and seed promotion —
-passes the same gate: `metadata.course_year` must equal `SCHEDULE_COURSE_YEAR`, or it is rejected
-and nothing is installed. A cold start whose only seed belongs to another course year therefore
-keeps storage empty and reports the discovery failure together with the mismatch, instead of
-silently serving another year's timetable. The parsed course year comes from the PDF's own title
+Every candidate schedule — live, Wayback, authenticated `manual`, packaged seed, image seed,
+repository mirror seed and seed promotion — passes the same gate: `metadata.course_year` must equal
+the course year the update was requested for, or it is rejected and nothing is installed. Storage
+repeats the check before writing, so no path can put one course's document in another's slot. Only
+Anul I ships a verified seed; a cold start for a course without one therefore keeps its storage
+empty and reports the discovery failure together with the reason, instead of silently serving
+another year's timetable. The parsed course year comes from the PDF's own title
 ("ANUL UNIVERSITAR 2026/2027, ANUL II, SEMESTRUL III"), which also outranks anything discovery
 inferred: a row labelled only by season ("Orar Semestrul de TOAMNĂ") cannot say which semester a
 given course year is in, so it is used only when the document carries no title. Discovery derives
@@ -56,8 +103,24 @@ The served schedule provenance and automatic discovery health are separate. An e
 seed promotion updates the schedule URL/hash, while a later Cloudflare discovery error remains a
 truthful error in SourceState and cannot revert the valid schedule.
 
-`data/metadata.json` keeps: current PDF URL, SHA-256, ETag, Last-Modified, last check,
-last success, last error, last result, academic year / semester, parity note.
+`data/courses/<year>/metadata.json` keeps, per course: current PDF URL, SHA-256, ETag,
+Last-Modified, last check, last success, last error, last result, academic year / semester, parity
+note. A write for one course never touches another's file, cache entry or history row — including
+its conditional-request validators, so course 2 activity can never make course 1 answer 304 for a
+document it does not have.
+
+A data directory in the pre-multi-course layout (`data/current_schedule.json` + `data/metadata.json`)
+is adopted once, by the course whose year the cached schedule declares, and copied into the scoped
+layout; the legacy files stay on disk. A legacy cache is never adopted by a course whose metadata
+does not match. The legacy `metadata.json` travels only when it demonstrably describes the adopted
+schedule — its `current_pdf_hash` must match, or, if it never recorded one, its `current_pdf_url`.
+Both files being well-formed proves nothing: an unrelated state would hand the schedule someone
+else's ETag and the next check would answer 304 for a document this course does not hold. Unproven
+identity means the schedule is adopted bare, with empty conditional metadata.
+
+File writes are serialized per destination path, so two overlapping writers cannot race their
+renames onto the same file, and each write uses a unique temporary name (pid + UUID) rather than a
+shared one.
 
 Raising `config.parserVersion` invalidates the cache: the next check re-downloads and
 re-parses the PDF even when it is byte-identical, so a parser fix reaches users without
@@ -90,13 +153,14 @@ week is over, so the schedule already shows the week that starts on Monday.
 │   validator       sanity checks (never replace prod data on failure)          │
 │   debug.ts        detected_*.json, cells.json, lessons.json, page_debug.svg   │
 │                          ▼                                                    │
-│                storage/ (data/current_schedule.json + metadata.json, atomic;  │
-│                          optional PostgreSQL `schedule_versions` history)     │
+│                storage/ (data/courses/<year>/{current_schedule,metadata}.json,│
+│                          atomic; optional per-course PostgreSQL history)      │
 │                          ▼                                                    │
 │  app/api/*  health · status · groups · schedule · schedule/{group}[/today]    │
-│             source · admin/refresh                                            │
+│             source · admin/refresh          (all course-scoped via ?course=)  │
 │                          ▼                                                    │
-│  components/ScheduleApp (React, Today / Week / All groups, search, status)    │
+│  components/ScheduleApp (React, course switcher, Today / Week / All groups,   │
+│                          search and status, all within the active course)     │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 

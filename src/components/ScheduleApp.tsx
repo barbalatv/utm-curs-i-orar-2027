@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import type { DayName, Lesson } from "@/lib/models";
-import type { ScheduleResponse, StatusResponse } from "@/lib/client/types";
+import type { CourseOption, ScheduleResponse, StatusResponse } from "@/lib/client/types";
+import { groupFor, readPreferences, rememberCourse, rememberGroup, type Preferences } from "@/lib/client/preferences";
+import { loadCourse, LoadGenerations } from "@/lib/client/course-load";
 import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
 import { AllGroupsView } from "./AllGroupsView";
 import { DayTimeline } from "./DayTimeline";
@@ -11,8 +13,23 @@ import { LessonCard } from "./LessonCard";
 import { WeekBadge } from "./WeekBadge";
 
 type ViewMode = "today" | "week" | "all";
-const STORAGE_KEY = "fcim-schedule:group";
 const SEARCH_DEBOUNCE_MS = 250;
+
+interface ScheduleAppProps {
+  /** Course years this deployment serves, in display order. */
+  courses: CourseOption[];
+  defaultCourse: number;
+}
+
+/** Even reaching for window.localStorage throws in some privacy modes, so acquisition
+ *  is guarded as well as the reads and writes inside the preferences module. */
+function browserStorage(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: "no-store" });
@@ -23,7 +40,15 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function ScheduleApp() {
+export function ScheduleApp({ courses, defaultCourse }: ScheduleAppProps) {
+  const courseYears = useMemo(() => courses.map((course) => course.course_year), [courses]);
+  const [course, setCourse] = useState(defaultCourse);
+  const [preferences, setPreferences] = useState<Preferences>({ course: defaultCourse, groups: {} });
+  // Nothing is fetched until the stored selection is known, so a returning Anul II
+  // reader never sees an Anul I payload flash first.
+  const [hydrated, setHydrated] = useState(false);
+  /** Only the newest load generation may paint; a switch or a newer load retires the rest. */
+  const generations = useRef(new LoadGenerations());
   const [schedule, setSchedule] = useState<ScheduleResponse | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -63,36 +88,69 @@ export function ScheduleApp() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const load = useCallback(async () => {
-    try {
-      const [scheduleData, statusData] = await Promise.all([fetchJson<ScheduleResponse>("/api/schedule"), fetchJson<StatusResponse>("/api/status")]);
-      setSchedule(scheduleData);
-      setStatus(statusData);
-      setLoadError(null);
-      const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
-      setGroup((current) => {
-        const candidate = current ?? stored;
-        return candidate && scheduleData.groups.includes(candidate) ? candidate : null;
-      });
-    } catch (error) {
-      setLoadError((error as Error).message);
+  useEffect(() => {
+    // localStorage exists only in the browser, so the server-rendered default stands until
+    // the stored selection is applied here - deferred by a tick, like the first fetch below,
+    // so restoring it does not cascade another render out of the effect body.
+    const timer = setTimeout(() => {
+      const stored = readPreferences(browserStorage(), courseYears, defaultCourse);
+      generations.current.invalidate();
+      setPreferences(stored);
+      setCourse(stored.course);
+      setGroup(groupFor(stored, stored.course));
+      setHydrated(true);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [courseYears, defaultCourse]);
+
+  const load = useCallback(async (target: number) => {
+    const outcome = await loadCourse(target, { fetchJson, generations: generations.current });
+    // "stale" means a newer load (or a course switch) has taken over: this response must
+    // change nothing, not even the error state.
+    if (outcome.kind === "stale") return;
+    if (outcome.kind === "failed") {
+      setLoadError(outcome.message);
+      return;
     }
+    setSchedule(outcome.payload.schedule);
+    setStatus(outcome.payload.status);
+    setLoadError(null);
+    // A group remembered for this course but missing from the published timetable is dropped.
+    setGroup((current) => (current && outcome.payload.schedule.groups.includes(current) ? current : null));
   }, []);
 
   useEffect(() => {
+    if (!hydrated) return;
     // Initial fetch happens asynchronously (after the effect body) plus a periodic refresh.
-    const initial = setTimeout(() => void load(), 0);
-    const timer = setInterval(() => void load(), 10 * 60_000);
+    const initial = setTimeout(() => void load(course), 0);
+    const timer = setInterval(() => void load(course), 10 * 60_000);
     return () => {
       clearTimeout(initial);
       clearInterval(timer);
     };
-  }, [load]);
+  }, [load, course, hydrated]);
 
   const selectGroup = (value: string) => {
-    setGroup(value || null);
-    if (value) window.localStorage.setItem(STORAGE_KEY, value);
-    else window.localStorage.removeItem(STORAGE_KEY);
+    const next = value || null;
+    setGroup(next);
+    setPreferences((current) => rememberGroup(browserStorage(), current, course, next));
+  };
+
+  /** Switching course discards the previous course's payload instead of filtering it. */
+  const selectCourse = (next: number) => {
+    if (next === course) return;
+    // Retire every in-flight load before the new course's own load starts, so a response
+    // for the course being left (or for an earlier visit to the one being entered) is dropped.
+    generations.current.invalidate();
+    setCourse(next);
+    setSchedule(null);
+    setStatus(null);
+    setLoadError(null);
+    setSelectedDay(null);
+    setSearch("");
+    setDebouncedSearch("");
+    setGroup(groupFor(preferences, next));
+    rememberCourse(browserStorage(), next);
   };
 
   // Which week the university is running. Recomputed on the clock tick so the page rolls
@@ -114,6 +172,7 @@ export function ScheduleApp() {
       .slice(0, 60);
   }, [schedule, debouncedSearch, days]);
 
+  const activeCourseOption = courses.find((option) => option.course_year === course) ?? courses[0];
   const sourceLabel = status?.schedule?.source_kind;
   const staleNotice = status && status.source.last_result === "error" && status.schedule ? `Nu s-a putut verifica ultima versiune. Este afișat orarul actualizat la ${formatDateTime(status.schedule.downloaded_at)}.` : null;
   const seedNotice = sourceLabel === "seed" ? "Sursa oficială nu a fost accesibilă la pornire; este afișată ultima versiune publicată de FCIM inclusă în aplicație. Se reîncearcă automat." : sourceLabel === "wayback" ? "Pagina FCIM nu a răspuns direct; PDF-ul a fost preluat din arhiva publică a paginii oficiale." : null;
@@ -123,12 +182,26 @@ export function ScheduleApp() {
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4">
           <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-sm font-bold text-white" aria-hidden="true">
-              I
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-900 text-sm font-bold text-white" aria-hidden="true">
+              {activeCourseOption?.roman ?? "?"}
             </span>
-            <span className="hidden sm:inline">Orar FCIM · Anul I</span>
-            <span className="sm:hidden">Orar FCIM</span>
+            <span className="hidden sm:inline">Orar FCIM</span>
           </Link>
+          {courses.length > 1 && (
+            <nav aria-label="Anul de studii" className="flex items-center rounded-lg bg-slate-100 p-0.5 text-sm">
+              {courses.map((option) => (
+                <button
+                  key={option.course_year}
+                  type="button"
+                  onClick={() => selectCourse(option.course_year)}
+                  aria-pressed={option.course_year === course}
+                  className={`whitespace-nowrap rounded-md px-2.5 py-1.5 font-medium transition sm:px-3 ${option.course_year === course ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </nav>
+          )}
           <label className="ml-auto flex items-center gap-2 text-sm">
             <span className="sr-only">Grupa</span>
             <select
@@ -224,7 +297,7 @@ export function ScheduleApp() {
                 week={week}
               />
             ) : !group ? (
-              <GroupPicker groups={schedule.groups} onPick={selectGroup} />
+              <GroupPicker groups={schedule.groups} courseLabel={activeCourseOption?.label ?? ""} onPick={selectGroup} />
             ) : (
               <GroupSchedule
                 group={group}
@@ -262,7 +335,7 @@ function fold(value: string | null | undefined): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function GroupPicker({ groups, onPick }: { groups: string[]; onPick: (group: string) => void }) {
+function GroupPicker({ groups, courseLabel, onPick }: { groups: string[]; courseLabel: string; onPick: (group: string) => void }) {
   const byProgram = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const name of groups) {
@@ -274,9 +347,11 @@ function GroupPicker({ groups, onPick }: { groups: string[]; onPick: (group: str
   return (
     <section aria-labelledby="pick-title" className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
       <h1 id="pick-title" className="text-xl font-semibold tracking-tight sm:text-2xl">
-        Alege grupa ta
+        Alege grupa ta{courseLabel ? ` · ${courseLabel}` : ""}
       </h1>
-      <p className="mt-1 text-sm text-slate-600">Grupa se salvează pe acest dispozitiv – data viitoare orarul se deschide direct.</p>
+      <p className="mt-1 text-sm text-slate-600">
+        Grupa se salvează pe acest dispozitiv, separat pentru fiecare an – data viitoare orarul se deschide direct.
+      </p>
       <div className="mt-6 space-y-5">
         {byProgram.map(([program, names]) => (
           <div key={program}>
@@ -368,7 +443,7 @@ function StatusFooter({ status, week, ref }: { status: StatusResponse | null; we
       </div>
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Sursa</p>
-        <p className="font-medium text-slate-900">FCIM UTM</p>
+        <p className="font-medium text-slate-900">FCIM UTM · {status.course_label}</p>
         <p className="text-xs">
           {schedule.academic_year ?? "—"} · {schedule.semester ?? "—"} · {schedule.groups} grupe · {schedule.lessons} lecții
         </p>
