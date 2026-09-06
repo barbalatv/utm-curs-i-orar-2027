@@ -321,7 +321,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
               </button>
             ))}
           </nav>
-          {!todayName && activeDay && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">Azi este weekend – afișăm ziua de {activeDay}.</p>}
+          {!todayName && activeDay && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">шашлыки сегодня {activeDay}.</p>}
           {activeDay && <DayTimeline day={activeDay} lessons={lessonsFor(activeDay)} now={now} focusGroup={group} activeParity={week.parity} />}
         </>
       )}
