@@ -24,3 +24,15 @@ body {
   background: #cbd5e1;
   border-radius: 9999px;
 }
+
+.min-h-screen {
+  background: #FFF url("/UTM.jpg") fixed no-repeat center center;
+}
+
+main {
+  background: rgba(1, 1, 1, 0.95);
+}
+
+.bg-white {
+  opacity: 0.95;
+}
