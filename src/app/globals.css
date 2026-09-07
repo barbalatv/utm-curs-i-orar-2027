@@ -26,11 +26,11 @@ body {
 }
 
 .min-h-screen {
-  background: #FFF;
+  background: #FFF url("/UTM.jpg") fixed no-repeat center center;
 }
 
 main {
-  background: #FFF url("/UTM.jpg") fixed no-repeat center center;
+  background: rgba(1, 1, 1, 0.95);
 }
 
 .bg-white {
