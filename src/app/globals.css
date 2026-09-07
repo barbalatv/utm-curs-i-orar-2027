@@ -25,6 +25,10 @@ body {
   border-radius: 9999px;
 }
 
+.min-h-screen {
+  background: #FFF;
+}
+
 main {
   background: #FFF url("/UTM.jpg") fixed no-repeat center center;
 }
