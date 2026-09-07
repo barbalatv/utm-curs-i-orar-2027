@@ -408,6 +408,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
                 <span className="sm:hidden">{DAY_SHORT[day]}</span>
                 <span className="hidden sm:inline">{day}</span>
                 {day === todayName && <span className={`ml-1 text-[10px] uppercase ${day === activeDay ? "opacity-80" : "text-blue-600"}`}>azi</span>}
+                <span className="ml-1 uppercase">{lessonsFor(day).length}</span>
               </button>
             ))}
           </nav>
