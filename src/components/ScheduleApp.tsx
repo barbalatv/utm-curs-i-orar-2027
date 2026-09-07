@@ -185,7 +185,7 @@ export function ScheduleApp({ courses, defaultCourse }: ScheduleAppProps) {
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-900 text-sm font-bold text-white" aria-hidden="true">
               {activeCourseOption?.roman ?? "?"}
             </span>
-            <span className="hidden sm:inline">Orar FCIM</span>
+            <span className="hidden sm:inline">Orar FCIM UTM</span>
           </Link>
           {courses.length > 1 && (
             <nav aria-label="Anul de studii" className="flex items-center rounded-lg bg-slate-100 p-0.5 text-sm">
