@@ -24,3 +24,11 @@ body {
   background: #cbd5e1;
   border-radius: 9999px;
 }
+
+main {
+  background: #FFF url("/UTM.jpg") fixed no-repeat center center;
+}
+
+.bg-white {
+  opacity: 0.95;
+}
