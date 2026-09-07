@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Orar FCIM UTM · Anul I",
-  description: "Orarul actual al studenților din anul I FCIM UTM, actualizat automat din PDF-ul oficial.",
+  title: "Orar FCIM UTM",
+  description: "Orarul actual al studenților FCIM UTM, actualizat automat din PDF-urile oficiale.",
   applicationName: "Orar FCIM",
 };
 

@@ -1,8 +1,13 @@
 /**
  * Read-side queries over the cached schedule: filtering, per-group
  * projection, "today" and the public status payload. No parsing happens here.
+ *
+ * Only the two entry points that reach storage take a course year. Everything
+ * below them (filtering, sorting, day handling) works on lessons alone and is
+ * shared by every course.
  */
 import { config } from "@/lib/config";
+import { assertSupportedCourse, courseLabel, DEFAULT_COURSE_YEAR, SUPPORTED_COURSES } from "@/lib/courses";
 import { DAY_NAMES, type DayName, type Lesson, type Schedule } from "@/lib/models";
 import { checkForUpdates } from "@/lib/services/updater";
 import { getCurrentSchedule, getSourceState } from "@/lib/storage";
@@ -90,21 +95,32 @@ export function todayInChisinau(now = new Date()): DayName | null {
 }
 
 /**
- * Returns the cached schedule; on a cold start with an empty cache it waits
- * for the bootstrap so the first visitor is not greeted with "no data".
+ * Returns one course's cached schedule; on a cold start with an empty cache it waits
+ * for that course's bootstrap so the first visitor is not greeted with "no data".
+ * A course whose bootstrap fails resolves to null without affecting any other course.
  */
-export async function requireSchedule(): Promise<Schedule | null> {
-  const cached = await getCurrentSchedule();
+export async function requireSchedule(courseYear: number = DEFAULT_COURSE_YEAR): Promise<Schedule | null> {
+  assertSupportedCourse(courseYear);
+  const cached = await getCurrentSchedule(courseYear);
   if (cached) return cached;
-  await checkForUpdates();
-  return getCurrentSchedule();
+  await checkForUpdates(courseYear);
+  return getCurrentSchedule(courseYear);
 }
 
-export async function buildStatus() {
-  const [schedule, state] = await Promise.all([getCurrentSchedule(), getSourceState()]);
+/** Status of exactly one course: no field here is read from another course's state. */
+export async function buildStatus(courseYear: number = DEFAULT_COURSE_YEAR) {
+  assertSupportedCourse(courseYear);
+  const [schedule, state] = await Promise.all([getCurrentSchedule(courseYear), getSourceState(courseYear)]);
   return {
     ok: schedule !== null,
     has_schedule: schedule !== null,
+    course_year: courseYear,
+    course_label: courseLabel(courseYear),
+    supported_courses: SUPPORTED_COURSES.map((course) => ({
+      course_year: course.year,
+      label: course.label,
+      roman: course.roman,
+    })),
     schedule: schedule
       ? {
           academic_year: schedule.metadata.academic_year,

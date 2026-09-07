@@ -1,14 +1,17 @@
 import type { NextRequest } from "next/server";
-import { apiError, json, withErrorHandling } from "@/lib/api";
+import { apiError, json, resolveCourse, withErrorHandling } from "@/lib/api";
 import { filterLessons, normalizeDayParam, requireSchedule, sortLessons } from "@/lib/services/schedule-service";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/schedule?group=SI-261&day=Luni&teacher=&subject=&room=&q= */
+/** GET /api/schedule?course=2&group=SI-261&day=Luni&teacher=&subject=&room=&q= */
 export const GET = withErrorHandling(async (request: NextRequest) => {
-  const schedule = await requireSchedule();
-  if (!schedule) return apiError(503, "Schedule not available yet");
   const params = request.nextUrl.searchParams;
+  const course = resolveCourse(params);
+  if (!course.ok) return course.response;
+
+  const schedule = await requireSchedule(course.courseYear);
+  if (!schedule) return apiError(503, "Schedule not available yet", { course_year: course.courseYear });
   const rawDay = params.get("day");
   if (rawDay && !normalizeDayParam(rawDay)) return apiError(400, `Unknown day "${rawDay}"`);
 
@@ -23,6 +26,7 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
     }),
   );
   return json({
+    course_year: course.courseYear,
     metadata: schedule.metadata,
     groups: schedule.groups.map((group) => group.name),
     days: schedule.days,

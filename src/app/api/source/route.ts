@@ -1,13 +1,21 @@
-import { json, withErrorHandling } from "@/lib/api";
+import type { NextRequest } from "next/server";
+import { json, resolveCourse, withErrorHandling } from "@/lib/api";
 import { config } from "@/lib/config";
 import { getCurrentSchedule, getSourceState } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
-/** Provenance of the data currently served: which PDF, discovered where, when. */
-export const GET = withErrorHandling(async () => {
-  const [schedule, state] = await Promise.all([getCurrentSchedule(), getSourceState()]);
+/** Provenance of the data currently served for one course: which PDF, discovered where, when. */
+export const GET = withErrorHandling(async (request: NextRequest) => {
+  const course = resolveCourse(request.nextUrl.searchParams);
+  if (!course.ok) return course.response;
+
+  const [schedule, state] = await Promise.all([
+    getCurrentSchedule(course.courseYear),
+    getSourceState(course.courseYear),
+  ]);
   return json({
+    course_year: course.courseYear,
     official_page_url: config.schedulePageUrl,
     pdf_url: schedule?.metadata.source_pdf_url ?? state.current_pdf_url,
     pdf_hash: schedule?.metadata.source_pdf_hash ?? state.current_pdf_hash,
