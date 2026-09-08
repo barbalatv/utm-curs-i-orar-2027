@@ -16,7 +16,7 @@ export function WeekBadge({ week, compact = false }: { week: WeekInfo; compact?:
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" title={compact ? explanation : undefined}>
       <span className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${PILL_STYLE[week.parity]}`}>
-        Săptămâna {parity}
+        Неделя {parity}
       </span>
       {!compact && <span className="text-xs text-slate-500">{explanation}</span>}
     </span>
