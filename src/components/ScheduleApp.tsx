@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Ref } from "react";
 import type { DayName, Lesson } from "@/lib/models";
 import type { ScheduleResponse, StatusResponse } from "@/lib/client/types";
-import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
+import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, lessonsThisWeek, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
 import { AllGroupsView } from "./AllGroupsView";
 import { DayTimeline } from "./DayTimeline";
 import { LessonCard } from "./LessonCard";
@@ -309,6 +309,7 @@ interface GroupScheduleProps {
 
 function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now, week }: GroupScheduleProps) {
   const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day);
+  const active_lessons = (day: DayName) => lessonsThisWeek(lessonsFor(day), week.parity);
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -330,7 +331,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
                 aria-pressed={day === activeDay}
                 className={`min-w-[3.2rem] flex-1 rounded-lg px-2 py-2 text-sm font-medium transition sm:flex-none sm:px-4 ${day === activeDay ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"}`}
               >
-                <span className="sm:hidden">{DAY_SHORT[day]}</span>
+                <span className="sm:hidden">{DAY_SHORT[day]}•{active_lessons(day).length}</span>
                 <span className="hidden sm:inline">{day}</span>
                 {day === todayName && <span className={`ml-1 text-[10px] uppercase ${day === activeDay ? "opacity-80" : "text-blue-600"}`}>azi</span>}
               </button>

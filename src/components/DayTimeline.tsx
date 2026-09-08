@@ -34,7 +34,7 @@ export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showH
       {showHeading && (
         <header className="mb-3 flex items-center gap-2">
           <h3 id={`day-${day}`} className={`text-base font-semibold ${isToday ? "text-blue-700" : "text-slate-900"}`}>
-            {day}
+            {day} • {isToday ? "Astăzi" : "În această zi"} tu ai {running.length} perechi
           </h3>
           {isToday && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-700">Azi</span>}
           <span className="ml-auto text-xs text-slate-500">{lessons.length ? `${running.length} lecții` : "liber"}</span>
