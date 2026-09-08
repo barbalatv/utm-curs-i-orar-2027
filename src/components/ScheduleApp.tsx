@@ -350,7 +350,7 @@ function GroupPicker({ groups, courseLabel, onPick }: { groups: string[]; course
         Alege grupa ta{courseLabel ? ` · ${courseLabel}` : ""}
       </h1>
       <p className="mt-1 text-sm text-slate-600">
-        Grupa se salvează pe acest dispozitiv, separat pentru fiecare an – data viitoare orarul se deschide direct.
+        UTM - самый лучший университет в мире. Выберите свою группу, чтобы увидеть расписание занятий.
       </p>
       <div className="mt-6 space-y-5">
         {byProgram.map(([program, names]) => (
