@@ -39,6 +39,26 @@ function round(value: number): number {
 }
 
 export async function extractPages(pdfBytes: Uint8Array): Promise<PageExtraction[]> {
+  if (typeof globalThis.navigator !== 'undefined') {
+    try {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: globalThis.navigator,
+        writable: true,
+        configurable: true,
+      });
+    } catch {}
+  }
+  if (typeof (Promise as any).withResolvers === 'undefined') {
+    (Promise as any).withResolvers = function <T>() {
+      let resolve!: (value: T | PromiseLike<T>) => void;
+      let reject!: (reason?: any) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    };
+  }
   const pdfjs = await loadPdfJs();
   // pdf.js transfers (detaches) the buffer it receives – hand it a private copy
   // so callers can still hash or store the original bytes afterwards.

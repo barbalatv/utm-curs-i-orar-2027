@@ -383,7 +383,7 @@ interface GroupScheduleProps {
 }
 
 function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now, week }: GroupScheduleProps) {
-  const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day);
+  const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day && (lesson.week_parity === week.parity || lesson.week_parity === "both"));
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -405,8 +405,8 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
                 aria-pressed={day === activeDay}
                 className={`min-w-[3.2rem] flex-1 rounded-lg px-2 py-2 text-sm font-medium transition sm:flex-none sm:px-4 ${day === activeDay ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"}`}
               >
-                <span className="sm:hidden">{DAY_SHORT[day]}</span>
-                <span className="hidden sm:inline">{day}</span>
+                <span className="sm:hidden">{DAY_SHORT[day]} {lessonsFor(day).length}</span>
+                <span className="hidden sm:inline">{day} {lessonsFor(day).length}</span>
                 {day === todayName && <span className={`ml-1 text-[10px] uppercase ${day === activeDay ? "opacity-80" : "text-blue-600"}`}>azi</span>}
               </button>
             ))}

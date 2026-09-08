@@ -1,3 +1,13 @@
+if (typeof globalThis.navigator !== 'undefined') {
+  try {
+    Object.defineProperty(globalThis, 'navigator', {
+      value: globalThis.navigator,
+      writable: true,
+      configurable: true,
+    });
+  } catch {}
+}
+
 import type { NextRequest } from "next/server";
 import { apiError, json, resolveCourse, withErrorHandling } from "@/lib/api";
 import { filterLessons, normalizeDayParam, requireSchedule, sortLessons } from "@/lib/services/schedule-service";
