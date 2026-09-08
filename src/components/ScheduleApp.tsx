@@ -347,7 +347,7 @@ function GroupPicker({ groups, courseLabel, onPick }: { groups: string[]; course
   return (
     <section aria-labelledby="pick-title" className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
       <h1 id="pick-title" className="text-xl font-semibold tracking-tight sm:text-2xl">
-        Alege grupa ta{courseLabel ? ` · ${courseLabel}` : ""}
+        Alege turma ta{courseLabel ? ` · ${courseLabel}` : ""}
       </h1>
       <p className="mt-1 text-sm text-slate-600">
         Grupa se salvează pe acest dispozitiv, separat pentru fiecare an – data viitoare orarul se deschide direct.
