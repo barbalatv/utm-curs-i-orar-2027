@@ -384,6 +384,17 @@ interface GroupScheduleProps {
 
 function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now, week }: GroupScheduleProps) {
   const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day);
+
+  // Считаем пары выбранной группы на текущей неделе
+  const countLessonsForDay = (day: DayName) => {
+    return lessons.filter((lesson) => {
+      if (lesson.day !== day) return false;
+      // Передаем весь объект lesson и текущую четность недели
+      if (isOtherWeek(lesson, week.parity)) return false;
+      return true;
+    }).length;
+  };
+
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -397,19 +408,33 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
       {view === "today" && (
         <>
           <nav aria-label="Ziua" className="sticky top-14 z-20 -mx-4 mb-4 flex gap-1 overflow-x-auto bg-slate-50/95 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0">
-            {days.map((day) => (
-              <button
-                key={day}
-                type="button"
-                onClick={() => onSelectDay(day)}
-                aria-pressed={day === activeDay}
-                className={`min-w-[3.2rem] flex-1 rounded-lg px-2 py-2 text-sm font-medium transition sm:flex-none sm:px-4 ${day === activeDay ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"}`}
-              >
-                <span className="sm:hidden">{DAY_SHORT[day]}</span>
-                <span className="hidden sm:inline">{day}</span>
-                {day === todayName && <span className={`ml-1 text-[10px] uppercase ${day === activeDay ? "opacity-80" : "text-blue-600"}`}>azi</span>}
-              </button>
-            ))}
+            {days.map((day) => {
+              const lessonCount = countLessonsForDay(day);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => onSelectDay(day)}
+                  aria-pressed={day === activeDay}
+                  className={`min-w-[3.2rem] flex-1 whitespace-nowrap rounded-lg px-2 py-2 text-sm font-medium transition sm:flex-none sm:px-4 ${
+                    day === activeDay ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <span className="sm:hidden">{DAY_SHORT[day]}</span>
+                    <span className="hidden sm:inline">{day}</span>
+                    <span className={`text-xs ${day === activeDay ? "opacity-80" : "text-slate-500"}`}>
+                      {lessonCount}
+                    </span>
+                    {day === todayName && (
+                      <span className={`ml-0.5 text-[10px] uppercase ${day === activeDay ? "opacity-80" : "text-blue-600"}`}>
+                        azi
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
           </nav>
           {!todayName && activeDay && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">Azi este weekend – afișăm ziua de {activeDay}.</p>}
           {activeDay && <DayTimeline day={activeDay} lessons={lessonsFor(activeDay)} now={now} focusGroup={group} activeParity={week.parity} />}
