@@ -11,10 +11,11 @@ interface DayTimelineProps {
   focusGroup: string | null;
   activeParity: WeekParityName;
   showHeading?: boolean;
+  showBanner?: boolean;
 }
 
 /** Vertical timeline for one day: time on the left, cards on the right, empty slots collapsed. */
-export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showHeading = true }: DayTimelineProps) {
+export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showHeading = true, showBanner = true }: DayTimelineProps) {
   const isToday = now.day === day;
   // Everything that counts – the lesson total, "Acum"/"Urmează" and the banner – follows
   // the week on show. A faded lesson is not running, so it is none of those.
@@ -40,8 +41,8 @@ export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showH
           <span className="ml-auto text-xs text-slate-500">{lessons.length ? `${running.length} lecții` : "liber"}</span>
         </header>
       )}
-      {banner && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">{banner}</p>}
-      {starts.length === 0 && !banner && <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400">Nicio lecție</p>}
+      {showBanner && banner && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">{banner}</p>}
+      {starts.length === 0 && (!showBanner || !banner) && <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400">Nicio lecție</p>}
       <ol className="space-y-4">
         {starts.map((start) => {
           const bucket = byStart.get(start) ?? [];
