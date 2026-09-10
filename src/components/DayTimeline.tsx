@@ -11,16 +11,25 @@ interface DayTimelineProps {
   focusGroup: string | null;
   activeParity: WeekParityName;
   showHeading?: boolean;
+  showBanner?: boolean;
 }
 
 /** Vertical timeline for one day: time on the left, cards on the right, empty slots collapsed. */
-export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showHeading = true }: DayTimelineProps) {
+export function DayTimeline({
+  day,
+  lessons,
+  now,
+  focusGroup,
+  activeParity,
+  showHeading = true,
+  showBanner = true,
+}: DayTimelineProps) {
   const isToday = now.day === day;
   // Everything that counts – the lesson total, "Acum"/"Urmează" and the banner – follows
   // the week on show. A faded lesson is not running, so it is none of those.
   const running = lessonsThisWeek(lessons, activeParity);
   const statuses = classifyLessons(running, now, day);
-  const banner = dayBanner(running, now, day);
+  const banner = showBanner ? dayBanner(running, now, day) : null;
   const byStart = new Map<string, Lesson[]>();
   for (const lesson of lessons) {
     const bucket = byStart.get(lesson.start_time) ?? [];

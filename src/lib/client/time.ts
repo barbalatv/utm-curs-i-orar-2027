@@ -169,3 +169,97 @@ export function dayBanner(lessons: Lesson[], now: LocalNow, day: DayName): strin
   if (next) return `Următoarea lecție la ${next.start_time}`;
   return "Lecțiile de azi s-au încheiat";
 }
+
+export type ScheduleStatusType = "in_progress" | "break" | "finished" | "none_today";
+
+export interface ScheduleStatus {
+  type: ScheduleStatusType;
+  /** Primary line, e.g. "Сейчас: [Subject Name]" */
+  text: string;
+  /** Secondary line (if applicable), e.g. "10:15–11:45" or "через 37 мин · 13:30–15:00" */
+  subtext?: string;
+  /** In-progress or upcoming lesson, if applicable */
+  lesson?: Lesson;
+  /** Time remaining in minutes until next lesson (for "break") */
+  remainingMinutes?: number;
+}
+
+/**
+ * Determine the schedule state relative to the current time in Chișinău.
+ * Strictly evaluates in Europe/Chisinau timezone.
+ */
+export function getScheduleStatus(
+  lessons: Lesson[],
+  now: LocalNow | Date,
+  parity: WeekParityName
+): ScheduleStatus {
+  const currentLocal = now instanceof Date ? localNow(now) : now;
+
+  // Weekend or non-academic day: no classes today.
+  if (!currentLocal.day) {
+    return {
+      type: "none_today",
+      text: "Сегодня занятий нет",
+    };
+  }
+
+  // Filter lessons for today's day and the active week parity.
+  const todayLessons = lessons.filter((lesson) => lesson.day === currentLocal.day);
+  const runningToday = lessonsThisWeek(todayLessons, parity);
+
+  if (runningToday.length === 0) {
+    return {
+      type: "none_today",
+      text: "Сегодня занятий нет",
+    };
+  }
+
+  const sorted = [...runningToday].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
+
+  // 1. Check for class in progress: [start, end)
+  const currentLesson = sorted.find((lesson) => {
+    const start = toMinutes(lesson.start_time);
+    const end = toMinutes(lesson.end_time);
+    return currentLocal.minutes >= start && currentLocal.minutes < end;
+  });
+
+  if (currentLesson) {
+    const concurrentLessons = sorted.filter((lesson) => {
+      const start = toMinutes(lesson.start_time);
+      const end = toMinutes(lesson.end_time);
+      return currentLocal.minutes >= start && currentLocal.minutes < end;
+    });
+    const subjects = [...new Set(concurrentLessons.map((l) => l.subject))].join(" / ");
+
+    return {
+      type: "in_progress",
+      text: `Сейчас: ${subjects}`,
+      subtext: `${currentLesson.start_time}–${currentLesson.end_time}`,
+      lesson: currentLesson,
+    };
+  }
+
+  // 2. Check for break / next class today: start > now
+  const nextLesson = sorted.find((lesson) => toMinutes(lesson.start_time) > currentLocal.minutes);
+
+  if (nextLesson) {
+    const nextLessons = sorted.filter((l) => l.start_time === nextLesson.start_time);
+    const subjects = [...new Set(nextLessons.map((l) => l.subject))].join(" / ");
+    const remainingMinutes = toMinutes(nextLesson.start_time) - currentLocal.minutes;
+
+    return {
+      type: "break",
+      text: `Следующее: ${subjects}`,
+      subtext: `через ${remainingMinutes} мин · ${nextLesson.start_time}–${nextLesson.end_time}`,
+      lesson: nextLesson,
+      remainingMinutes,
+    };
+  }
+
+  // 3. If there are lessons today and all are past (now >= end):
+  return {
+    type: "finished",
+    text: "На сегодня занятий больше нет",
+  };
+}
+
