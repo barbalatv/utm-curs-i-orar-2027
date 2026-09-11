@@ -1,0 +1,47 @@
+name = "fcim-schedule-broker"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+minify = true
+
+# Bind R2 bucket for candidate snapshots and accepted state
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "fcim-schedule-broker"
+
+# Internal HTTP transport through the Stockholm-placed downstream Worker's default fetch handler.
+[[services]]
+binding = "FCIM_EGRESS"
+service = "fcim-stockholm-egress"
+
+# Split publication transport. Discovery enqueues one bounded job per PDF plus a finalize job;
+# every message is handled in its own invocation with its own CPU budget.
+[[queues.producers]]
+binding = "PUBLICATION_QUEUE"
+queue = "fcim-broker-publication"
+
+[[queues.consumers]]
+queue = "fcim-broker-publication"
+# One message per invocation: the whole point of splitting publication.
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 3
+max_concurrency = 1
+retry_delay = 300
+dead_letter_queue = "fcim-broker-publication-dlq"
+
+# Cron trigger for periodic FCIM candidate publication check
+[triggers]
+crons = ["*/20 * * * *"]
+
+[vars]
+FCIM_PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view"
+SCHEDULE_PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/"
+# DF-03: how far an uploaded Page API `modified_gmt` may lead broker time before it is refused.
+MAX_PAGE_FUTURE_SKEW_HOURS = "26"
+
+# Secrets (wrangler secret put), never committed:
+#   SCHEDULE_BROKER_SECRET       Render's accepted-state credential
+#   MD_PUBLISHER_TOKEN           the Moldova laptop's transport credential (>= 32 chars)
+#   MD_PUBLISHER_TOKEN_PREVIOUS  rotation only; remove once the laptop uses the new value
+# MD_PUBLISHER_TOKEN must differ from SCHEDULE_BROKER_SECRET: if they are equal the publisher
+# routes fail closed rather than granting a transport credential accepted-state authority.

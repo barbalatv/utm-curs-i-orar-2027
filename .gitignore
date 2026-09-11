@@ -11,6 +11,7 @@ build/
 !.env.example
 *.log
 *.tsbuildinfo
+next-env.d.ts
 
 # runtime cache and temporary artifacts
 data/*.json
@@ -20,3 +21,9 @@ debug/
 .test-data/
 tmp/
 out/
+.wrangler/
+
+# Cloudflare Worker local secrets
+.dev.vars
+.dev.vars.*
+
