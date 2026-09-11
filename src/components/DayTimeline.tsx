@@ -40,7 +40,7 @@ export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showH
           <span className="ml-auto text-xs text-slate-500">{lessons.length ? `${running.length} lecții` : "liber"}</span>
         </header>
       )}
-      {banner && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">{banner}</p>}
+      {banner && <p className="mb-3 whitespace-pre-line rounded-xl border border-blue-100 bg-blue-50/60 p-3.5 text-sm font-medium text-slate-900 shadow-sm">{banner}</p>}
       {starts.length === 0 && !banner && <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400">Nicio lecție</p>}
       <ol className="space-y-4">
         {starts.map((start) => {

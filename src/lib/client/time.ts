@@ -162,10 +162,19 @@ export function classifyLessons(lessons: Lesson[], now: LocalNow, day: DayName):
 
 export function dayBanner(lessons: Lesson[], now: LocalNow, day: DayName): string | null {
   if (now.day !== day) return null;
-  if (lessons.length === 0) return "Nu sunt lecții programate azi";
-  const statuses = classifyLessons(lessons, now, day);
-  if ([...statuses.values()].includes("current")) return null;
-  const next = lessons.find((lesson) => statuses.get(lesson.id) === "next");
-  if (next) return `Următoarea lecție la ${next.start_time}`;
-  return "Lecțiile de azi s-au încheiat";
+  if (lessons.length === 0) return "Сегодня занятий нет";
+
+  const current = lessons.find((l) => now.minutes >= toMinutes(l.start_time) && now.minutes < toMinutes(l.end_time));
+  if (current) return `Сейчас: ${current.subject}\n${current.start_time} - ${current.end_time}`;
+
+  const next = [...lessons].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time)).find((l) => toMinutes(l.start_time) > now.minutes);
+  if (next) {
+    const mins = Math.max(1, toMinutes(next.start_time) - now.minutes);
+    const m10 = mins % 10;
+    const m100 = mins % 100;
+    const unit = m10 === 1 && m100 !== 11 ? "минуту" : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? "минуты" : "минут";
+    return `Следующее: ${next.subject}\nчерез ${mins} ${unit} • ${next.start_time} - ${next.end_time}`;
+  }
+
+  return "На сегодня занятий больше нет";
 }
