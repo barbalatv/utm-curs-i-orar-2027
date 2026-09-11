@@ -169,3 +169,93 @@ export function dayBanner(lessons: Lesson[], now: LocalNow, day: DayName): strin
   if (next) return `Următoarea lecție la ${next.start_time}`;
   return "Lecțiile de azi s-au încheiat";
 }
+
+export type NowScheduleStatus =
+  | {
+      state: "CURRENT_LESSON";
+      subject: string;
+      timeSlot: string;
+      startTime: string;
+      endTime: string;
+      lesson: Lesson;
+    }
+  | {
+      state: "NEXT_LESSON";
+      subject: string;
+      timeSlot: string;
+      startTime: string;
+      endTime: string;
+      minutesUntil: number;
+      lesson: Lesson;
+    }
+  | {
+      state: "AFTER_LAST";
+    }
+  | {
+      state: "NO_LESSONS_TODAY";
+    };
+
+/**
+ * Evaluates the schedule status of a group relative to current time in Chișinău:
+ * - CURRENT_LESSON: currently inside a lesson interval [start_time, end_time)
+ * - NEXT_LESSON: upcoming next lesson today (before first or during break)
+ * - AFTER_LAST: all lessons today have ended
+ * - NO_LESSONS_TODAY: no lessons scheduled today (e.g. weekend or empty day for parity)
+ */
+export function computeNowScheduleStatus(
+  groupLessons: Lesson[],
+  now: LocalNow,
+  parity: WeekParityName
+): NowScheduleStatus {
+  if (!now.day) {
+    return { state: "NO_LESSONS_TODAY" };
+  }
+
+  const todayLessons = groupLessons.filter((lesson) => lesson.day === now.day);
+  const running = lessonsThisWeek(todayLessons, parity);
+
+  if (running.length === 0) {
+    return { state: "NO_LESSONS_TODAY" };
+  }
+
+  const sorted = [...running].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
+
+  // Active lesson interval is [start_time, end_time):
+  // At exactly start_time: active.
+  // At exactly end_time: finished.
+  const activeLesson = sorted.find((l) => {
+    const start = toMinutes(l.start_time);
+    const end = toMinutes(l.end_time);
+    return now.minutes >= start && now.minutes < end;
+  });
+
+  if (activeLesson) {
+    return {
+      state: "CURRENT_LESSON",
+      subject: activeLesson.subject,
+      timeSlot: `${activeLesson.start_time}–${activeLesson.end_time}`,
+      startTime: activeLesson.start_time,
+      endTime: activeLesson.end_time,
+      lesson: activeLesson,
+    };
+  }
+
+  const upcomingLessons = sorted.filter((l) => toMinutes(l.start_time) > now.minutes);
+  if (upcomingLessons.length > 0) {
+    const nextLesson = upcomingLessons[0];
+    const diff = toMinutes(nextLesson.start_time) - now.minutes;
+    return {
+      state: "NEXT_LESSON",
+      subject: nextLesson.subject,
+      timeSlot: `${nextLesson.start_time}–${nextLesson.end_time}`,
+      startTime: nextLesson.start_time,
+      endTime: nextLesson.end_time,
+      minutesUntil: diff,
+      lesson: nextLesson,
+    };
+  }
+
+  return {
+    state: "AFTER_LAST",
+  };
+}

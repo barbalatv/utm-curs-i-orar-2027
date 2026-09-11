@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DayName, Lesson } from "@/lib/models";
 import type { ScheduleResponse, StatusResponse } from "@/lib/client/types";
-import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
+import { computeNowScheduleStatus, currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, type NowScheduleStatus, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
 import { AllGroupsView } from "./AllGroupsView";
 import { DayTimeline } from "./DayTimeline";
 import { LessonCard } from "./LessonCard";
@@ -331,6 +331,11 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
     return lessons.filter((lesson) => lesson.day === day && !isOtherWeek(lesson, week.parity)).length;
   };
 
+  const nowStatus = useMemo(
+    () => computeNowScheduleStatus(lessons, now, week.parity),
+    [lessons, now, week.parity]
+  );
+
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -343,6 +348,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
 
       {view === "today" && (
         <>
+          <NowStatusCard status={nowStatus} />
           <nav aria-label="Ziua" className="sticky top-14 z-20 -mx-4 mb-4 flex gap-1.5 overflow-x-auto bg-slate-50/95 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0">
             {days.map((day) => {
               const count = getDayLessonCount(day);
@@ -441,5 +447,49 @@ function StatusFooter({ status, week }: { status: StatusResponse | null; week: W
         {schedule.uncertain_lessons > 0 && <p className="text-xs">{schedule.uncertain_lessons} celule marcate ca incerte.</p>}
       </div>
     </footer>
+  );
+}
+
+function NowStatusCard({ status }: { status: NowScheduleStatus }) {
+  if (status.state === "CURRENT_LESSON") {
+    return (
+      <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 shadow-sm sm:p-4">
+        <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+          <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-emerald-600 animate-pulse align-middle" />
+          Acum:
+        </p>
+        <p className="mt-1 font-semibold text-slate-900 sm:text-lg">{status.subject}</p>
+        <p className="mt-0.5 font-mono text-xs text-emerald-950/80 sm:text-sm">{status.timeSlot}</p>
+      </div>
+    );
+  }
+
+  if (status.state === "NEXT_LESSON") {
+    return (
+      <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/70 p-3.5 shadow-sm sm:p-4">
+        <p className="text-xs font-bold uppercase tracking-wider text-blue-800">
+          <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-blue-600 align-middle" />
+          Urmează:
+        </p>
+        <p className="mt-1 font-semibold text-slate-900 sm:text-lg">{status.subject}</p>
+        <p className="mt-0.5 text-xs text-blue-950/80 sm:text-sm">
+          peste {status.minutesUntil} min · <span className="font-mono">{status.timeSlot}</span>
+        </p>
+      </div>
+    );
+  }
+
+  if (status.state === "AFTER_LAST") {
+    return (
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
+        <p className="text-sm font-medium text-slate-600">Lecțiile de azi s-au încheiat</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
+      <p className="text-sm font-medium text-slate-600">Azi nu sunt lecții</p>
+    </div>
   );
 }
