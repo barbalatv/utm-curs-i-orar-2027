@@ -10,5 +10,6 @@ export default function HomePage() {
     label: course.label,
     roman: course.roman,
   }));
+
   return <ScheduleApp courses={courses} defaultCourse={DEFAULT_COURSE_YEAR} />;
 }
