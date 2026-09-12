@@ -160,6 +160,43 @@ export function classifyLessons(lessons: Lesson[], now: LocalNow, day: DayName):
   return result;
 }
 
+export interface TodayStatusInfo {
+  type: "current" | "next" | "finished" | "none";
+  lesson?: Lesson;
+  minutesUntil?: number;
+}
+
+/**
+ * Evaluates today's schedule status relative to current Chișinău time.
+ * Expects `lessons` to be already filtered for the current week parity and group.
+ */
+export function getTodayStatus(lessons: Lesson[], now: LocalNow, day: DayName): TodayStatusInfo {
+  if (lessons.length === 0) {
+    return { type: "none" };
+  }
+
+  const statuses = classifyLessons(lessons, now, day);
+
+  const currentLesson = lessons.find((l) => statuses.get(l.id) === "current");
+  if (currentLesson) {
+    return { type: "current", lesson: currentLesson };
+  }
+
+  const nextLesson = lessons.find((l) => statuses.get(l.id) === "next");
+  if (nextLesson) {
+    const minutesUntil = Math.max(0, toMinutes(nextLesson.start_time) - now.minutes);
+    return { type: "next", lesson: nextLesson, minutesUntil };
+  }
+
+  const hasPast = lessons.some((l) => statuses.get(l.id) === "past");
+  const allPast = lessons.every((l) => statuses.get(l.id) === "past");
+  if (allPast || hasPast) {
+    return { type: "finished" };
+  }
+
+  return { type: "none" };
+}
+
 export function dayBanner(lessons: Lesson[], now: LocalNow, day: DayName): string | null {
   if (now.day !== day) return null;
   if (lessons.length === 0) return "Nu sunt lecții programate azi";

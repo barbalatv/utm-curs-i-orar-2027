@@ -1,7 +1,7 @@
 "use client";
 
 import type { DayName, Lesson } from "@/lib/models";
-import { classifyLessons, dayBanner, isOtherWeek, lessonsThisWeek, type LocalNow, type WeekParityName } from "@/lib/client/time";
+import { classifyLessons, getTodayStatus, isOtherWeek, lessonsThisWeek, type LocalNow, type TodayStatusInfo, type WeekParityName } from "@/lib/client/time";
 import { LessonCard } from "./LessonCard";
 
 interface DayTimelineProps {
@@ -20,7 +20,7 @@ export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showH
   // the week on show. A faded lesson is not running, so it is none of those.
   const running = lessonsThisWeek(lessons, activeParity);
   const statuses = classifyLessons(running, now, day);
-  const banner = dayBanner(running, now, day);
+  const todayStatus: TodayStatusInfo | null = isToday ? getTodayStatus(running, now, day) : null;
   const byStart = new Map<string, Lesson[]>();
   for (const lesson of lessons) {
     const bucket = byStart.get(lesson.start_time) ?? [];
@@ -40,8 +40,29 @@ export function DayTimeline({ day, lessons, now, focusGroup, activeParity, showH
           <span className="ml-auto text-xs text-slate-500">{lessons.length ? `${running.length} lecții` : "liber"}</span>
         </header>
       )}
-      {banner && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">{banner}</p>}
-      {starts.length === 0 && !banner && <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400">Nicio lecție</p>}
+      {todayStatus && (
+        <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          {todayStatus.type === "current" && todayStatus.lesson && (
+            <div>
+              <p className="font-semibold">Acum: {todayStatus.lesson.subject}</p>
+              <p className="text-xs text-blue-700">{todayStatus.lesson.start_time}–{todayStatus.lesson.end_time}</p>
+            </div>
+          )}
+          {todayStatus.type === "next" && todayStatus.lesson && (
+            <div>
+              <p className="font-semibold">Urmează: {todayStatus.lesson.subject}</p>
+              <p className="text-xs text-blue-700">peste {todayStatus.minutesUntil ?? 0} min · {todayStatus.lesson.start_time}–{todayStatus.lesson.end_time}</p>
+            </div>
+          )}
+          {todayStatus.type === "finished" && (
+            <p className="font-medium">Astăzi nu mai sunt lecții</p>
+          )}
+          {todayStatus.type === "none" && (
+            <p className="font-medium">Astăzi nu sunt lecții</p>
+          )}
+        </div>
+      )}
+      {starts.length === 0 && !todayStatus && <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400">Nicio lecție</p>}
       <ol className="space-y-4">
         {starts.map((start) => {
           const bucket = byStart.get(start) ?? [];
