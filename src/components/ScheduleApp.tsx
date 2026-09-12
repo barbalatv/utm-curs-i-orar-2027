@@ -6,10 +6,11 @@ import type { DayName, Lesson } from "@/lib/models";
 import type { CourseOption, ScheduleResponse, StatusResponse } from "@/lib/client/types";
 import { groupFor, readPreferences, rememberCourse, rememberGroup, type Preferences } from "@/lib/client/preferences";
 import { loadCourse, LoadGenerations } from "@/lib/client/course-load";
-import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
+import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, lessonsThisWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
 import { AllGroupsView } from "./AllGroupsView";
 import { DayTimeline } from "./DayTimeline";
 import { LessonCard } from "./LessonCard";
+import { ScheduleStatusBlock } from "./ScheduleStatusBlock";
 import { WeekBadge } from "./WeekBadge";
 
 type ViewMode = "today" | "week" | "all";
@@ -384,6 +385,7 @@ interface GroupScheduleProps {
 
 function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now, week }: GroupScheduleProps) {
   const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day);
+  const activeLessons = useMemo(() => lessonsThisWeek(lessons, week.parity), [lessons, week.parity]);
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -393,6 +395,10 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
         </p>
         <WeekBadge week={week} />
       </div>
+
+      {view === "week" && (
+        <ScheduleStatusBlock view={view} lessons={activeLessons} />
+      )}
 
       {view === "today" && (
         <>
