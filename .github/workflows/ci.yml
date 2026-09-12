@@ -54,3 +54,18 @@ jobs:
       # environment variables. Keep it that way: a build that needs secrets cannot be
       # verified on a fork's pull request.
       - run: npm run build
+
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run test:e2e
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-failure-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
