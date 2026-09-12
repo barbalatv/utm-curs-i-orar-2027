@@ -16,6 +16,7 @@ export const LESSON_TYPES = [
   "physical_education",
   "language",
   "project",
+  "individual_group_activity",
   "unknown",
 ] as const;
 export const LessonTypeSchema = z.enum(LESSON_TYPES);

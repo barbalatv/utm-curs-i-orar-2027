@@ -39,6 +39,8 @@ const SUBGROUP_RE = /(?:\b0\s*[.,]\s*5\s*[,.]?\s*gr\.?|\b05\s*,\s*gr\.?)/i;
 const LONE_MARKER_RE = /^(c|lab|sem|pr|proiect)\.?$/i;
 const PHYS_ED_RE = /^(?:ed\.?|educa[țt]i[ae])\s*fizic[aă](?![a-zăâîșț])/i;
 const LANGUAGE_RE = /^(?:l\.?\s*|limba\s+|limbă\s+)?(?:engleză|engleza|română|romana|rom\.?|străină|straina|franceză|germană)(?![a-zăâîșț])/i;
+/** The dedicated unsupervised activity printed in the current FCIM timetable. */
+const INDIVIDUAL_GROUP_ACTIVITY_RE = /^activități\s+individuale\s*\/\s*în\s+grup$/iu;
 /** Slots the timetable fills with unsupervised work – no teacher or room is expected. */
 const SELF_STUDY_RE = /^(?:activit[ăa][țt]i|lucru\s+individual|studiu\s+individual)/i;
 
@@ -200,6 +202,7 @@ export function classifyType(subject: string, leadingType: LessonType | null): {
   if (type === null) {
     if (PHYS_ED_RE.test(text)) type = "physical_education";
     else if (LANGUAGE_RE.test(text)) type = "language";
+    else if (INDIVIDUAL_GROUP_ACTIVITY_RE.test(text)) type = "individual_group_activity";
   }
   return { type: type ?? "unknown", subject: text };
 }
@@ -221,7 +224,9 @@ export function interpretCell(cell: TableCell): Lesson[] {
 
   segments.forEach((segment, index) => {
     const joinedSubject = segment.subjectLines.length > 0 ? segment.subjectLines.join(" ") : (segment.marker ?? "");
-    const { type, subject } = classifyType(joinedSubject, segment.leadingType);
+    const classified = classifyType(joinedSubject, segment.leadingType);
+    let type = classified.type;
+    const { subject } = classified;
     // The abbreviation is expanded once the class-type prefix is off and the text is
     // normalised, so the alias table only ever sees the subject itself.
     const resolvedSubject = resolveSubjectAlias(normalizeSubject(subject), cell.groups);
@@ -234,6 +239,10 @@ export function interpretCell(cell: TableCell): Lesson[] {
     const misread =
       isRoom(canonicalSubject) || isVenue(canonicalSubject) || (segment.teacher === null && isTeacher(canonicalSubject));
     const uncertain = !hasSubject || misread;
+    if (type === "unknown" && !uncertain && hasSubject) {
+      const hasContactDetails = segment.teacher !== null || segment.room !== null;
+      if (hasContactDetails) type = "seminar";
+    }
     const confidence = scoreConfidence(hasSubject, segment, type, canonicalSubject, segments.length);
 
     lessons.push({
@@ -274,7 +283,12 @@ function parityFromPosition(position: TableCell["position"]): WeekParity {
 
 /** Sports, languages and self-study slots omit the room or the teacher on purpose. */
 function isSelfContained(type: LessonType, subject: string): boolean {
-  return type === "physical_education" || type === "language" || SELF_STUDY_RE.test(subject);
+  return (
+    type === "physical_education" ||
+    type === "language" ||
+    type === "individual_group_activity" ||
+    SELF_STUDY_RE.test(subject)
+  );
 }
 
 function scoreConfidence(

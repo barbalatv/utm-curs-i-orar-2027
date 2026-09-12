@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildGrid, mergeSegments } from "@/lib/parser/geometry";
-import { buildCells, rowsCoveredBy, groupsCoveredBy } from "@/lib/parser/cell-builder";
-import { classifyType, isRoom, isTeacher, isVenue, segmentLines } from "@/lib/parser/lesson-interpreter";
+import { buildCells, rowsCoveredBy, groupsCoveredBy, type TableCell } from "@/lib/parser/cell-builder";
+import { classifyType, interpretCell, isRoom, isTeacher, isVenue, segmentLines } from "@/lib/parser/lesson-interpreter";
 import { normalizeRoom, normalizeSubgroup, normalizeTeacher, normalizeTime, toCanonicalSubjectTitle } from "@/lib/parser/normalizer";
 import { resolveSubjectAlias } from "@/lib/parser/subject-aliases";
 import { extractPages, type PageExtraction } from "@/lib/parser/pdf-extract";
@@ -90,6 +90,43 @@ function seedLesson(day: string, startTime: string, group: string, rawText: stri
   );
   expect(found, `${day} ${startTime} ${group} ${rawText}`).toHaveLength(1);
   return found[0];
+}
+
+function testCell(lines: string[], groups = ["TI-261"]): TableCell {
+  return {
+    key: `test:${groups.join(",")}:${lines.join("|")}`,
+    page: 1,
+    bounds: { x0: 0, y0: 0, x1: 100, y1: 20 },
+    lines,
+    background: null,
+    groups,
+    day: "Luni",
+    rows: [
+      {
+        index: 0,
+        day: "Luni",
+        start_time: "08:00",
+        end_time: "09:30",
+        raw: "8.00-9.30",
+        y0: 0,
+        y1: 20,
+      },
+    ],
+    position: "full",
+  };
+}
+
+function interpretTestCell(lines: string[], groups?: string[]) {
+  const lessons = interpretCell(testCell(lines, groups));
+  expect(lessons).toHaveLength(1);
+  return lessons[0];
+}
+
+function lessonTypeDistribution(schedule: ParseArtifacts["schedule"]): Record<string, number> {
+  return schedule.lessons.reduce<Record<string, number>>((counts, lesson) => {
+    counts[lesson.lesson_type] = (counts[lesson.lesson_type] ?? 0) + 1;
+    return counts;
+  }, {});
 }
 
 describe("pdf extraction", () => {
@@ -250,6 +287,65 @@ describe("test_schedule_normalization", () => {
     expect(classifyType("lab.PAE", null)).toEqual({ type: "lab", subject: "PAE" });
     expect(classifyType("lab. PAE", null)).toEqual({ type: "lab", subject: "PAE" });
     expect(classifyType("labrador", null)).toEqual({ type: "unknown", subject: "labrador" });
+  });
+});
+
+describe("lesson type classification", () => {
+  it("keeps explicit and special lexical classifications", () => {
+    expect(classifyType("sem. PC", null)).toEqual({ type: "seminar", subject: "PC" });
+    expect(classifyType("c. PC", null)).toEqual({ type: "lecture", subject: "PC" });
+    expect(classifyType("lab. PC", null)).toEqual({ type: "lab", subject: "PC" });
+    expect(classifyType("L. Engleză", null).type).toBe("language");
+    expect(classifyType("Educație fizică", null).type).toBe("physical_education");
+    expect(classifyType("Proiect PCAS", null)).toEqual({ type: "project", subject: "PCAS" });
+  });
+
+  it("classifies a structured markerless lesson as a seminar", () => {
+    expect(interpretTestCell(["PC", "Leah A.", "628"])).toMatchObject({
+      lesson_type: "seminar",
+      teacher: "Leah A.",
+      room: "628",
+      uncertain: false,
+    });
+  });
+
+  it("accepts a room as sufficient seminar context when the teacher is missing", () => {
+    expect(interpretTestCell(["ALGA", "611"])).toMatchObject({
+      lesson_type: "seminar",
+      teacher: null,
+      room: "611",
+      uncertain: false,
+    });
+  });
+
+  it("does not require a markerless seminar to cover only one group", () => {
+    expect(interpretTestCell(["PC", "Leah A.", "628"], ["TI-261", "TI-262"])).toMatchObject({
+      lesson_type: "seminar",
+      groups: ["TI-261", "TI-262"],
+    });
+  });
+
+  it("recognizes the exact individual/group activity across PDF line breaks", () => {
+    expect(interpretTestCell(["Activități individuale/ în", "grup"], ["FAF-261"])).toMatchObject({
+      subject: "Activități Individuale/În Grup",
+      lesson_type: "individual_group_activity",
+      teacher: null,
+      room: null,
+      week_parity: "both",
+      uncertain: false,
+    });
+  });
+
+  it("preserves lexical and contextually insufficient unknowns", () => {
+    expect(classifyType("labrador", null).type).toBe("unknown");
+    expect(classifyType("MDPS", null).type).toBe("unknown");
+    expect(interpretTestCell(["SO"])).toMatchObject({ lesson_type: "unknown", teacher: null, room: null });
+  });
+
+  it("does not broaden the dedicated activity type to other self-study names", () => {
+    expect(classifyType("Activități individuale", null).type).toBe("unknown");
+    expect(classifyType("Lucru individual", null).type).toBe("unknown");
+    expect(classifyType("Studiu individual", null).type).toBe("unknown");
   });
 });
 
@@ -653,6 +749,18 @@ describe("autumn 2026 packaged-seed regression", () => {
     expect(validateSchedule(schedule).warnings).toEqual([]);
   });
 
+  it("classifies the -18.pdf lesson types with no diagnostic unknowns", () => {
+    expect(lessonTypeDistribution(seedArtifacts.schedule)).toEqual({
+      seminar: 275,
+      lecture: 68,
+      language: 49,
+      physical_education: 36,
+      lab: 19,
+      individual_group_activity: 4,
+      project: 1,
+    });
+  });
+
   it("reads the teacher this PDF writes initial-first", () => {
     // "ESU | P. Russu | 401" used to leave the teacher glued to the subject, because only
     // the surname-first spelling was recognised.
@@ -726,6 +834,15 @@ describe("autumn 2026 Anul II packaged-seed regression", () => {
     expect(seedArtifactsAnulII.border_repairs).toHaveLength(0);
     expect(validateSchedule(schedule).ok).toBe(true);
     expect(validateSchedule(schedule).warnings).toEqual([]);
+  });
+
+  it("classifies the -11.pdf lesson types with no diagnostic unknowns", () => {
+    expect(lessonTypeDistribution(seedArtifactsAnulII.schedule)).toEqual({
+      seminar: 161,
+      lecture: 62,
+      lab: 41,
+      language: 24,
+    });
   });
 });
 
@@ -952,6 +1069,20 @@ describe("regression fixture", () => {
       expect(found!.week_parity).toBe(sample.week_parity);
       expect(found!.groups.length, JSON.stringify(sample)).toBe(sample.group_count);
     }
+  });
+
+  it("keeps only the structurally unsupported SO entry as unknown", () => {
+    const { schedule } = artifacts;
+    expect(schedule.lessons.filter((lesson) => lesson.lesson_type === "seminar")).toHaveLength(241);
+    const unknown = schedule.lessons.filter((lesson) => lesson.lesson_type === "unknown");
+    expect(unknown).toHaveLength(1);
+    expect(unknown[0]).toMatchObject({
+      groups: ["AI-252"],
+      subject: "SO",
+      teacher: null,
+      room: null,
+      lesson_type: "unknown",
+    });
   });
 
   it("resolves RC to Rețele De Calculatoare while raw_text preserves RC", () => {
@@ -1462,7 +1593,17 @@ describe("autumn 2026 packaged-seed course 2 regression", () => {
     expect(act).toHaveLength(4);
     for (const l of act) {
       expect(l.raw_text).toBe("Activități individuale/ în | grup");
+      expect(l.lesson_type).toBe("individual_group_activity");
+      expect(l.teacher).toBeNull();
+      expect(l.room).toBeNull();
+      expect(l.week_parity).toBe("both");
     }
+    expect(act.map((l) => `${l.day} ${l.start_time} ${l.groups.join(",")}`)).toEqual([
+      "Luni 13:30 FAF-262",
+      "Luni 15:15 FAF-261",
+      "Luni 15:15 FAF-262",
+      "Luni 15:15 FAF-263",
+    ]);
   });
 
   it("regression 18: resolves all Limba Engleză 1 lessons to Limba Engleză in Anul I", () => {

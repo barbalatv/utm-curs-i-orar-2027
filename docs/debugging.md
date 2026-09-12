@@ -116,7 +116,10 @@ published.
 ```
 
 `lesson_type` ∈ lecture · lab · seminar · practice · physical_education · language · project ·
-unknown. `week_parity` ∈ odd · even · both · unknown.
+individual_group_activity · unknown. Explicit type markers take priority; known special lessons
+are classified separately, and a well-structured ordinary lesson with a teacher or room but no
+marker is a seminar. `unknown` is reserved for genuinely unresolved entries. `week_parity` ∈ odd ·
+even · both · unknown.
 
 ## Environment variables
 

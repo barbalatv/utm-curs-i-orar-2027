@@ -8,6 +8,7 @@ export const TYPE_LABEL: Record<LessonType, string> = {
   physical_education: "Educație fizică",
   language: "Limbă străină",
   project: "Proiect",
+  individual_group_activity: "Activități Individuale/În Grup",
   unknown: "Tip nespecificat",
 };
 
@@ -19,6 +20,7 @@ export const TYPE_STYLE: Record<LessonType, string> = {
   physical_education: "bg-rose-50 text-rose-700 ring-rose-200",
   language: "bg-violet-50 text-violet-700 ring-violet-200",
   project: "bg-cyan-50 text-cyan-700 ring-cyan-200",
+  individual_group_activity: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200",
   unknown: "bg-slate-100 text-slate-600 ring-slate-200",
 };
 

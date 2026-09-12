@@ -361,6 +361,8 @@ week is over, so the schedule already shows the week that starts on Monday.
    week; full-height cells are `both`.
 5. **Interpretation** – line roles are classified (room pattern, "Surname I." teacher pattern,
    subgroup marker `0,5 gr.`, type prefixes `c.`/`lab`/`sem.`), stacked lessons in one cell are
-   split, `Ed. fizică` / `L. Engleză` get their types. Anything else is `unknown` – no guessing.
-   Unresolvable cells are kept with `uncertain: true` and the `raw_text`.
+   split, and known special lessons (`Ed. fizică`, `L. Engleză`,
+   `Activități Individuale/În Grup`) get dedicated types. Explicit markers take priority; a
+   well-structured ordinary lesson with a teacher or room but no marker is a `seminar`. Truly
+   unresolved entries remain `unknown` and retain their `raw_text`.
 6. **Validation** – see above.

@@ -96,7 +96,7 @@
       "subject": "Matematică Discretă, Probabilitate Și Statistică Aplicată",
       "teacher": "Tiholaz T.",
       "room": "107",
-      "lesson_type": "unknown",
+      "lesson_type": "seminar",
       "week_parity": "odd",
       "group_count": 1
     },
@@ -107,7 +107,7 @@
       "subject": "Matematică Discretă, Probabilitate Și Statistică Aplicată",
       "teacher": "Toma O.",
       "room": "107",
-      "lesson_type": "unknown",
+      "lesson_type": "seminar",
       "week_parity": "even",
       "group_count": 1
     },
@@ -118,7 +118,7 @@
       "subject": "Rețele De Calculatoare",
       "teacher": "Dubciuc D.",
       "room": "215",
-      "lesson_type": "unknown",
+      "lesson_type": "seminar",
       "week_parity": "both",
       "group_count": 1
     },

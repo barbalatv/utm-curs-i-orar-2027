@@ -86,8 +86,10 @@ Debugging and stuff can be found [here](docs/debugging.md ).
   authenticated explicit official-PDF refresh when page discovery is blocked. This does not bypass
   Cloudflare; if the runtime is also challenged for the PDF, the request fails and last-known-good
   data remains served.
-- **Lesson type** is only set when the PDF says so (`c.`, `lab`, `sem.`, `Ed. fizică`, `L. …`).
-  Most single-group cells in the spring PDF carry no marker → `unknown` (shown as "Tip nespecificat").
+- **Lesson type.** Explicit PDF markers (`c.`, `lab`, `sem.`) take priority, and known special
+  lessons such as `Ed. fizică`, `L. …`, and `Activități Individuale/În Grup` have dedicated types.
+  A well-structured ordinary lesson with a teacher or room but no marker is a `seminar`; `unknown`
+  (shown as "Tip nespecificat") is reserved for genuinely unresolved entries.
 - **Week parity.** Each lesson's parity comes from the half-cell convention (upper = odd, lower =
   even). Which parity the *current* week has is computed: the app counts Monday→Sunday weeks from
   `SCHEDULE_ODD_WEEK_ANCHOR` (default `2026-08-31`) and fades out the lessons of the other week.
