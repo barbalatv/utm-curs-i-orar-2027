@@ -465,6 +465,12 @@ function StatusFooter({ status, week, ref }: { status: StatusResponse | null; we
         <p className="text-xs">{source.parity_note ?? "Săptămâna pară/impară: vezi anunțul de pe pagina oficială."}</p>
         {schedule.uncertain_lessons > 0 && <p className="text-xs">{schedule.uncertain_lessons} celule marcate ca incerte.</p>}
       </div>
+      <div>
+       <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Proiect</p>
+       <a href="https://github.com/barbalatv/utm-curs-i-orar-2027" target="_blank" rel="noopener noreferrer" className="block font-medium text-blue-700 hover:underline">
+        Cod sursă pe GitHub ↗
+       </a>
+      </div>
     </footer>
   );
 }
