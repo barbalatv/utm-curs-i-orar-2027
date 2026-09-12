@@ -163,7 +163,9 @@ describe("wrong-course installation guard", () => {
 
     expect(result.course_year).toBe(2);
     expect(result.outcome).not.toBe("seeded");
-    expect(result.message).toMatch(/course year mismatch/);
+    // The bundled SHA ownership check now rejects these bytes before the parser's
+    // course-year guard; both gates independently prevent cross-course installation.
+    expect(result.message).toMatch(/SHA-256 mismatch for course year 2/);
     // Anul II never reaches into Anul I's mirror to look for something usable.
     expect(calls).not.toContain(SEED_MIRROR_URL);
     await expectNothingServed(2);
