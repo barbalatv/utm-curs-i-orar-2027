@@ -28,11 +28,19 @@ jobs:
 
       - run: npm run typecheck
 
-      # The broker Worker and the MD Publisher are separate TypeScript projects with their own
+      # The Workers and the MD Publisher are separate TypeScript projects with their own
       # compiler settings. Without these steps they can only break at deploy time.
       - run: npm run typecheck:worker
 
+      - run: npm run typecheck:worker-egress
+
       - run: npm run typecheck:publisher
+
+      # Bundle and validate both Worker entrypoints/configs locally. Dry runs require no
+      # Cloudflare credentials and do not deploy or mutate remote resources.
+      - run: npm run check:worker
+
+      - run: npm run check:worker-egress
 
       - run: npm run build:publisher
 
