@@ -6,10 +6,11 @@ import type { DayName, Lesson } from "@/lib/models";
 import type { CourseOption, ScheduleResponse, StatusResponse } from "@/lib/client/types";
 import { groupFor, readPreferences, rememberCourse, rememberGroup, type Preferences } from "@/lib/client/preferences";
 import { loadCourse, LoadGenerations } from "@/lib/client/course-load";
-import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
+import { computeTodayStatus, currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PARITY_LABEL, type WeekInfo } from "@/lib/client/time";
 import { AllGroupsView } from "./AllGroupsView";
 import { DayTimeline } from "./DayTimeline";
 import { LessonCard } from "./LessonCard";
+import { TodayStatusCard } from "./TodayStatusCard";
 import { WeekBadge } from "./WeekBadge";
 
 type ViewMode = "today" | "week" | "all";
@@ -384,6 +385,15 @@ interface GroupScheduleProps {
 
 function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now, week }: GroupScheduleProps) {
   const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day);
+  const todayStatus = useMemo(
+    () =>
+      computeTodayStatus({
+        todayLessons: todayName ? lessons.filter((lesson) => lesson.day === todayName) : [],
+        now,
+        parity: week.parity,
+      }),
+    [todayName, lessons, now, week.parity],
+  );
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -411,8 +421,9 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
               </button>
             ))}
           </nav>
+          <TodayStatusCard status={todayStatus} />
           {!todayName && activeDay && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">Azi este weekend – afișăm ziua de {activeDay}.</p>}
-          {activeDay && <DayTimeline day={activeDay} lessons={lessonsFor(activeDay)} now={now} focusGroup={group} activeParity={week.parity} />}
+          {activeDay && <DayTimeline day={activeDay} lessons={lessonsFor(activeDay)} now={now} focusGroup={group} activeParity={week.parity} showBanner={false} />}
         </>
       )}
 

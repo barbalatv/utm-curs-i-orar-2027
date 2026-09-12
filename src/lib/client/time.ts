@@ -169,3 +169,90 @@ export function dayBanner(lessons: Lesson[], now: LocalNow, day: DayName): strin
   if (next) return `Următoarea lecție la ${next.start_time}`;
   return "Lecțiile de azi s-au încheiat";
 }
+
+export type TodayStatusResult =
+  | {
+      kind: "current";
+      subject: string;
+      startTime: string;
+      endTime: string;
+      lessons: Lesson[];
+    }
+  | {
+      kind: "next";
+      subject: string;
+      startTime: string;
+      endTime: string;
+      minutesUntil: number;
+      lessons: Lesson[];
+    }
+  | {
+      kind: "finished";
+    }
+  | {
+      kind: "no_lessons";
+    };
+
+export interface ComputeTodayStatusOptions {
+  todayLessons: Lesson[];
+  now: Pick<LocalNow, "day" | "minutes">;
+  parity: WeekParityName;
+}
+
+/**
+ * Computes the real-time status of today's schedule for a group according to the exact interval rule:
+ * currentTime >= startTime && currentTime < endTime.
+ *
+ * States:
+ * - "current": a lesson is currently taking place
+ * - "next": break between lessons or before the first lesson
+ * - "finished": all scheduled lessons for today have ended
+ * - "no_lessons": no lessons running today (including weekends and opposite parity weeks)
+ */
+export function computeTodayStatus({ todayLessons, now, parity }: ComputeTodayStatusOptions): TodayStatusResult {
+  if (!now.day) {
+    return { kind: "no_lessons" };
+  }
+
+  const running = lessonsThisWeek(todayLessons, parity);
+  if (running.length === 0) {
+    return { kind: "no_lessons" };
+  }
+
+  const sorted = [...running].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
+
+  // Current lesson: start_time <= now.minutes < end_time
+  const currentLessons = sorted.filter(
+    (lesson) => toMinutes(lesson.start_time) <= now.minutes && now.minutes < toMinutes(lesson.end_time),
+  );
+
+  if (currentLessons.length > 0) {
+    const uniqueSubjects = [...new Set(currentLessons.map((l) => l.subject))];
+    return {
+      kind: "current",
+      subject: uniqueSubjects.join(" / "),
+      startTime: currentLessons[0].start_time,
+      endTime: currentLessons[0].end_time,
+      lessons: currentLessons,
+    };
+  }
+
+  // Next lesson: start_time > now.minutes
+  const futureLessons = sorted.filter((lesson) => toMinutes(lesson.start_time) > now.minutes);
+  if (futureLessons.length > 0) {
+    const earliestStart = futureLessons[0].start_time;
+    const nextLessons = futureLessons.filter((l) => l.start_time === earliestStart);
+    const uniqueSubjects = [...new Set(nextLessons.map((l) => l.subject))];
+    return {
+      kind: "next",
+      subject: uniqueSubjects.join(" / "),
+      startTime: earliestStart,
+      endTime: nextLessons[0].end_time,
+      minutesUntil: toMinutes(earliestStart) - now.minutes,
+      lessons: nextLessons,
+    };
+  }
+
+  return { kind: "finished" };
+}
+
