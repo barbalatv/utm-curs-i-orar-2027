@@ -727,7 +727,7 @@ describe("test_remote_seed_bootstrap", () => {
 
     const result = await checkForUpdates(1);
     expect(result.outcome).toBe("error");
-    expect(result.message).toMatch(/seed mirror SHA-256 mismatch/);
+    expect(result.message).toMatch(/seed SHA-256 mismatch/);
     expect(calls.some((call) => call.url === SEED_MIRROR_URL)).toBe(true);
     expect(await getCurrentSchedule(1)).toBeNull();
 
@@ -738,7 +738,7 @@ describe("test_remote_seed_bootstrap", () => {
       last_result: "error",
     });
     expect(failedState.last_error).toMatch(/Cloudflare challenge/);
-    expect(failedState.last_error).toMatch(/seed mirror SHA-256 mismatch/);
+    expect(failedState.last_error).toMatch(/seed SHA-256 mismatch/);
 
     // A known-good schedule prevents cold-start fallback entirely and remains untouched.
     const previous = await persistOldSchedule("live");

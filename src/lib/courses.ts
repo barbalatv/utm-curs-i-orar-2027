@@ -17,19 +17,37 @@
  */
 import path from "node:path";
 
-/** A bundled real FCIM PDF used for a cold start when the live source is unreachable. */
-export interface CourseSeed {
+interface CourseSeedBase {
+  /** The course whose schedule these bytes are allowed to install. */
+  courseYear: number;
+  /** Official URL this file was published at; the provenance a seed may claim. */
+  originalUrl: string;
+  /** Every local or remote byte source must match this value before parsing. */
+  sha256: string;
+}
+
+/** The release-owned seed. All three locations describe the same BUNDLED_SEEDS document. */
+export interface BundledCourseSeed extends CourseSeedBase {
+  kind: "bundled";
   /** Packaged copy inside the data directory, which may be a mounted volume. */
   pdfPath: string;
   /** Container-safe copy kept outside SCHEDULE_DATA_DIR so a mounted cache cannot hide it. */
   imagePdfPath: string;
-  /** Official URL this file was published at; the provenance a seed may claim. */
-  originalUrl: string;
   /** Public copy for hosts that do not preserve image files at runtime. */
   mirrorUrl: string;
-  /** Expected bytes of the mirror before it may claim the official provenance. */
-  sha256: string;
 }
+
+/** An operator-owned seed. It may only use byte sources explicitly supplied with its provenance. */
+export interface CustomCourseSeed extends CourseSeedBase {
+  kind: "custom";
+  pdfPath: string | null;
+  /** A custom descriptor must never fall back to the release-owned image bytes. */
+  imagePdfPath: null;
+  mirrorUrl: string | null;
+}
+
+/** A real FCIM PDF used for a cold start when the live source is unreachable. */
+export type CourseSeed = BundledCourseSeed | CustomCourseSeed;
 
 export interface CourseDefinition {
   year: number;
@@ -102,35 +120,124 @@ function resolveFromCwd(relative: string): string {
  * appended, so `SCHEDULE_SEED_PDF_2` can only ever describe Anul II. Setting a course 1
  * variable must not silently change what Anul II installs, and vice versa.
  */
+function seedEnvName(courseYear: number, name: string): string {
+  return courseYear === 1 ? name : `${name}_${courseYear}`;
+}
+
 function seedEnv(env: NodeJS.ProcessEnv, courseYear: number, name: string): string | undefined {
-  return courseYear === 1 ? env[name] : env[`${name}_${courseYear}`];
+  const raw = env[seedEnvName(courseYear, name)];
+  const normalized = raw?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function validateSeedSha256(value: string, variable: string, courseYear: number): string {
+  const normalized = value.toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+    throw new CourseConfigError(
+      `${variable} for course year ${courseYear} must contain a 64-character hexadecimal SHA-256.`,
+    );
+  }
+  return normalized;
+}
+
+function validateSeedUrl(value: string, variable: string, courseYear: number): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new CourseConfigError(`${variable} for course year ${courseYear} must be an absolute HTTPS URL.`);
+  }
+  if (url.protocol !== "https:" || url.username !== "" || url.password !== "") {
+    throw new CourseConfigError(`${variable} for course year ${courseYear} must be an absolute HTTPS URL.`);
+  }
+  return value;
 }
 
 /**
- * The bundled seed of one course, with its overridable knobs resolved. A course with no
- * entry in BUNDLED_SEEDS has no cold-start fallback and stays unavailable until the live
- * source answers — it never borrows another course's file.
+ * The immutable release descriptor. Promotion always uses this value, never an
+ * environment representation that may have survived from a previous release.
  */
-function seedFor(env: NodeJS.ProcessEnv, courseYear: number): CourseSeed | null {
+export function bundledCourseSeed(courseYear: number): BundledCourseSeed | null {
   const bundled = BUNDLED_SEEDS[courseYear];
   if (!bundled) return null;
 
-  const defaultMirrorUrl = repositoryMirrorUrl(bundled.fileName);
-  const originalUrl = seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_URL") ?? bundled.originalUrl;
-  const mirrorUrl = seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_MIRROR_URL") ?? defaultMirrorUrl;
   return {
-    pdfPath: resolveFromCwd(seedEnv(env, courseYear, "SCHEDULE_SEED_PDF") ?? `data/seed/${bundled.fileName}`),
-    // Fixed in-image location: the Dockerfile copies data/seed to /app/seed so the seed
-    // survives a mounted (initially empty) volume over /app/data. Deliberately not derived
-    // from the override above, which points at the writable data directory.
+    kind: "bundled",
+    courseYear,
+    pdfPath: resolveFromCwd(`data/seed/${bundled.fileName}`),
+    // The Dockerfile copies data/seed to /app/seed so this survives an empty /app/data mount.
     imagePdfPath: resolveFromCwd(`seed/${bundled.fileName}`),
-    originalUrl,
-    mirrorUrl,
-    // A custom seed must bring its own hash: the bundled one only describes the bundled file.
-    sha256:
-      seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_SHA256") ??
-      (originalUrl === bundled.originalUrl && mirrorUrl === defaultMirrorUrl ? bundled.sha256 : ""),
+    originalUrl: bundled.originalUrl,
+    mirrorUrl: repositoryMirrorUrl(bundled.fileName),
+    sha256: bundled.sha256,
   };
+}
+
+/**
+ * Resolve the effective cold-start descriptor for one course.
+ *
+ * Without a changed provenance URL, path and mirror overrides are relocations of the
+ * current bundled document and retain its URL and SHA. Changing the provenance URL
+ * creates an atomic custom descriptor: it must bring a SHA and at least one byte source,
+ * and it can never inherit the release image path or repository mirror.
+ */
+export function resolveCourseSeed(env: NodeJS.ProcessEnv, courseYear: number): CourseSeed | null {
+  const release = bundledCourseSeed(courseYear);
+  if (!release) return null;
+
+  const pdfName = seedEnvName(courseYear, "SCHEDULE_SEED_PDF");
+  const urlName = seedEnvName(courseYear, "SCHEDULE_SEED_PDF_URL");
+  const mirrorName = seedEnvName(courseYear, "SCHEDULE_SEED_PDF_MIRROR_URL");
+  const shaName = seedEnvName(courseYear, "SCHEDULE_SEED_PDF_SHA256");
+  const pdfOverride = seedEnv(env, courseYear, "SCHEDULE_SEED_PDF");
+  const urlOverride = seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_URL");
+  const mirrorOverride = seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_MIRROR_URL");
+  const shaOverride = seedEnv(env, courseYear, "SCHEDULE_SEED_PDF_SHA256");
+
+  // Repeating the current official URL does not change descriptor ownership. This keeps
+  // a current release's old four-variable configuration compatible while ensuring it
+  // becomes a custom descriptor (or fails atomically) once BUNDLED_SEEDS moves forward.
+  if (!urlOverride || urlOverride === release.originalUrl) {
+    if (shaOverride) {
+      const configured = validateSeedSha256(shaOverride, shaName, courseYear);
+      if (configured !== release.sha256) {
+        throw new CourseConfigError(
+          `${shaName} for course year ${courseYear} must equal the release-managed bundled SHA-256 ` +
+            `${release.sha256} while ${urlName} is unset or names the bundled official URL.`,
+        );
+      }
+    }
+    return {
+      ...release,
+      pdfPath: pdfOverride ? resolveFromCwd(pdfOverride) : release.pdfPath,
+      mirrorUrl: mirrorOverride ? validateSeedUrl(mirrorOverride, mirrorName, courseYear) : release.mirrorUrl,
+    };
+  }
+
+  const missing = [!shaOverride ? shaName : null, !pdfOverride && !mirrorOverride ? `${pdfName} or ${mirrorName}` : null]
+    .filter((item): item is string => item !== null)
+    .join(", ");
+  if (missing) {
+    throw new CourseConfigError(
+      `${urlName} for course year ${courseYear} selects a custom seed descriptor and requires ${shaName} ` +
+        `and at least one custom byte source (${pdfName} and/or ${mirrorName}). Missing: ${missing}.`,
+    );
+  }
+
+  return {
+    kind: "custom",
+    courseYear,
+    pdfPath: pdfOverride ? resolveFromCwd(pdfOverride) : null,
+    imagePdfPath: null,
+    originalUrl: validateSeedUrl(urlOverride, urlName, courseYear),
+    mirrorUrl: mirrorOverride ? validateSeedUrl(mirrorOverride, mirrorName, courseYear) : null,
+    sha256: validateSeedSha256(shaOverride!, shaName, courseYear),
+  };
+}
+
+/** A course with no BUNDLED_SEEDS entry has no cold-start fallback. */
+function seedFor(env: NodeJS.ProcessEnv, courseYear: number): CourseSeed | null {
+  return resolveCourseSeed(env, courseYear);
 }
 
 /** Every course this application knows how to serve. */

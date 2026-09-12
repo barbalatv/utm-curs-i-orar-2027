@@ -17,9 +17,7 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=8000 \
     HOSTNAME=0.0.0.0 \
-    SCHEDULE_DATA_DIR=/app/data \
-    SCHEDULE_SEED_PDF=/app/seed/anul_i_semestrul_i-18.pdf \
-    SCHEDULE_SEED_PDF_2=/app/seed/anul_ii_semestrul_iii-11.pdf
+    SCHEDULE_DATA_DIR=/app/data
 RUN groupadd --system app && useradd --system --gid app --home /app app
 COPY --from=builder --chown=app:app /app/.next/standalone ./
 # Next's file tracer omits PDF.js' dynamically imported worker and optional
@@ -30,7 +28,7 @@ COPY --from=builder --chown=app:app /app/.next/static ./.next/static
 COPY --from=builder --chown=app:app /app/public ./public
 # Keep the bundled fallbacks outside the writable cache mount: deployment platforms
 # may replace /app/data with an initially empty volume. Both courses' seeds live here,
-# and each course's SCHEDULE_SEED_PDF[_<year>] above points at its own file.
+# and BUNDLED_SEEDS resolves each release-owned file at this /app/seed location.
 COPY --from=builder --chown=app:app /app/data/seed ./seed
 RUN mkdir -p /app/data && chown -R app:app /app/data /app/seed
 USER app

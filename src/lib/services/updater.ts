@@ -8,7 +8,14 @@
  */
 import { readFile } from "node:fs/promises";
 import { config } from "@/lib/config";
-import { isSupportedCourse, courseSeed, SUPPORTED_COURSE_YEARS, UnsupportedCourseError, type CourseSeed } from "@/lib/courses";
+import {
+  bundledCourseSeed,
+  isSupportedCourse,
+  courseSeed,
+  SUPPORTED_COURSE_YEARS,
+  UnsupportedCourseError,
+  type CourseSeed,
+} from "@/lib/courses";
 import { Deadline, DeadlineExceededError } from "@/lib/deadline";
 import { errorMessage, getLogger } from "@/lib/logger";
 import type { Schedule, ScheduleMetadata, SourceState } from "@/lib/models";
@@ -821,13 +828,37 @@ async function buildValidatedSchedule(
   };
 }
 
-async function readBundledSeed(seed: CourseSeed): Promise<{ bytes: Uint8Array; path: string } | null> {
-  const paths = [...new Set([seed.pdfPath, seed.imagePdfPath])];
+function verifySeedBytes(bytes: Uint8Array, seed: CourseSeed, source: string): string {
+  const expected = seed.sha256.toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expected)) {
+    throw new Error(`seed descriptor for course year ${seed.courseYear} has an invalid SHA-256: ${seed.sha256}`);
+  }
+  const actual = sha256(bytes);
+  if (actual !== expected) {
+    throw new Error(
+      `seed SHA-256 mismatch for course year ${seed.courseYear}: expected ${expected}, actual ${actual}, source ${source}`,
+    );
+  }
+  return actual;
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+async function readSeedFromLocalFiles(
+  seed: CourseSeed,
+): Promise<{ bytes: Uint8Array; source: string; hash: string } | null> {
+  const paths = [...new Set([seed.pdfPath, seed.imagePdfPath].filter((item): item is string => item !== null))];
   for (const filePath of paths) {
     try {
-      return { bytes: new Uint8Array(await readFile(filePath)), path: filePath };
-    } catch {
-      // Try the immutable image copy next. The writable data directory may be a mounted volume.
+      const bytes = new Uint8Array(await readFile(filePath));
+      const hash = verifySeedBytes(bytes, seed, `local file ${filePath}`);
+      return { bytes, source: filePath, hash };
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error;
+      // A bundled descriptor may try its immutable image copy next. Custom descriptors
+      // have no imagePdfPath, so their bytes can never cross this ownership boundary.
     }
   }
   return null;
@@ -839,14 +870,16 @@ async function readBundledSeed(seed: CourseSeed): Promise<{ bytes: Uint8Array; p
  * prove this is a forward move within the exact same academic context.
  */
 async function promoteBundledSeedIfNewer(courseYear: number): Promise<void> {
-  const seed = courseSeed(courseYear);
+  // Promotion is about the package in this release, not the effective cold-start
+  // descriptor, which may be an intentional or stale operator override.
+  const seed = bundledCourseSeed(courseYear);
   if (!seed) return;
   const current = await getCurrentSchedule(courseYear);
   if (!current || current.metadata.source_kind !== "seed") return;
 
-  const bundled = await readBundledSeed(seed);
+  const bundled = await readSeedFromLocalFiles(seed);
   if (!bundled) return;
-  const bundledHash = sha256(bundled.bytes);
+  const bundledHash = bundled.hash;
   if (
     bundledHash === current.metadata.source_pdf_hash ||
     seed.originalUrl === current.metadata.source_pdf_url ||
@@ -871,7 +904,7 @@ async function promoteBundledSeedIfNewer(courseYear: number): Promise<void> {
   if (!built.schedule) {
     log.warn("newer bundled seed was invalid; keeping persisted seed", {
       courseYear,
-      path: bundled.path,
+      path: bundled.source,
       error: built.result.message,
     });
     return;
@@ -957,15 +990,8 @@ function isNewerPackagedSeedUrl(currentUrl: string, bundledUrl: string): boolean
   return bundledPeriod > currentPeriod || (bundledPeriod === currentPeriod && bundled.revision > current.revision);
 }
 
-function verifySeedMirrorHash(bytes: Uint8Array, seed: CourseSeed): void {
-  const expected = seed.sha256.trim().toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(expected)) {
-    throw new Error("SCHEDULE_SEED_PDF_SHA256 must contain a 64-character hexadecimal SHA-256");
-  }
-  const actual = sha256(bytes);
-  if (actual !== expected) {
-    throw new Error(`seed mirror SHA-256 mismatch: expected ${expected}, received ${actual}`);
-  }
+function seedMirrorHost(mirrorUrl: string): string {
+  return new URL(mirrorUrl).hostname;
 }
 
 /**
@@ -978,18 +1004,25 @@ async function seedFromBundledPdf(courseYear: number): Promise<CheckResult> {
   const seed = courseSeed(courseYear);
   if (!seed) throw new Error(`no bundled seed PDF is available for course year ${courseYear}`);
 
-  const bundled = await readBundledSeed(seed);
-  let bytes = bundled?.bytes ?? null;
+  const local = await readSeedFromLocalFiles(seed);
+  let bytes = local?.bytes ?? null;
   if (!bytes) {
+    if (!seed.mirrorUrl) {
+      const configuredPaths = [seed.pdfPath, seed.imagePdfPath].filter((item): item is string => item !== null);
+      throw new Error(
+        `no readable seed byte source for course year ${courseYear}: ` +
+          `${configuredPaths.length > 0 ? configuredPaths.join(", ") : "no local path configured"}; no mirror configured`,
+      );
+    }
     try {
-      const mirror = await fetchPdf(seed.mirrorUrl, {}, ["raw.githubusercontent.com"]);
-      verifySeedMirrorHash(mirror.bytes, seed);
+      const mirror = await fetchPdf(seed.mirrorUrl, {}, [seedMirrorHost(seed.mirrorUrl)]);
+      verifySeedBytes(mirror.bytes, seed, `mirror ${seed.mirrorUrl}`);
       bytes = mirror.bytes;
-      log.warn("loaded seed PDF from the repository mirror", { courseYear, url: seed.mirrorUrl });
+      log.warn("loaded seed PDF from a verified mirror", { courseYear, url: seed.mirrorUrl, kind: seed.kind });
     } catch (error) {
       log.warn("no seed PDF available", {
         courseYear,
-        paths: [...new Set([seed.pdfPath, seed.imagePdfPath])],
+        paths: [...new Set([seed.pdfPath, seed.imagePdfPath].filter((item): item is string => item !== null))],
         mirror: seed.mirrorUrl,
         error: errorMessage(error),
       });

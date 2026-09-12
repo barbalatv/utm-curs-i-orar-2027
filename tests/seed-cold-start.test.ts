@@ -170,7 +170,7 @@ describe("Anul II offline cold start", () => {
   });
 
   it("falls back to its own repository mirror, hash-checked, when no file is packaged", async () => {
-    const mirrorUrl = courseSeed(2)!.mirrorUrl;
+    const mirrorUrl = courseSeed(2)!.mirrorUrl!;
     const calls = stubFetch(cloudflareBlocked({ [mirrorUrl]: { body: anulIIBytes } }));
 
     const result = await checkForUpdates(2);
@@ -183,7 +183,7 @@ describe("Anul II offline cold start", () => {
   });
 
   it("refuses mirror bytes that do not match the configured SHA-256", async () => {
-    const mirrorUrl = courseSeed(2)!.mirrorUrl;
+    const mirrorUrl = courseSeed(2)!.mirrorUrl!;
     const tampered = new Uint8Array(anulIIBytes);
     tampered[tampered.length - 1] ^= 0xff;
     stubFetch(cloudflareBlocked({ [mirrorUrl]: { body: tampered } }));
@@ -197,47 +197,41 @@ describe("Anul II offline cold start", () => {
 });
 
 describe("a seed can only serve the course it belongs to", () => {
-  it("rejects the Anul I timetable offered as the Anul II seed", async () => {
-    // The exact confusion the course guard exists for: right shape, wrong document.
+  it("rejects Anul I bytes at the relocated Anul II path before parsing", async () => {
     await writeFile(packagedSeedTwo, anulIBytes);
     stubFetch(cloudflareBlocked());
 
     const result = await checkForUpdates(2);
 
     expect(result.outcome).not.toBe("seeded");
-    expect(result.message).toMatch(/course year mismatch/);
-    expect(result.message).toMatch(/course year 1/);
+    expect(result.message).toMatch(/SHA-256 mismatch for course year 2/);
+    expect(result.message).toContain(`expected ${ANUL_II_HASH}`);
+    expect(result.message).toContain(`actual ${ANUL_I_HASH}`);
     expect(await getCurrentSchedule(2)).toBeNull();
     expect((await getSourceState(2)).current_pdf_url).toBeNull();
   });
 
-  it("rejects the Anul II timetable offered as the Anul I seed", async () => {
+  it("rejects Anul II bytes at the relocated Anul I path before parsing", async () => {
     await writeFile(packagedSeedOne, anulIIBytes);
     stubFetch(cloudflareBlocked());
 
     const result = await checkForUpdates(1);
 
     expect(result.outcome).not.toBe("seeded");
-    expect(result.message).toMatch(/course year mismatch/);
-    expect(result.message).toMatch(/course year 2/);
+    expect(result.message).toMatch(/SHA-256 mismatch for course year 1/);
+    expect(result.message).toContain(`expected ${ANUL_I_HASH}`);
+    expect(result.message).toContain(`actual ${ANUL_II_HASH}`);
     expect(await getCurrentSchedule(1)).toBeNull();
   });
 
-  it("rejects Anul I bytes arriving from the Anul II mirror even with a matching hash", async () => {
-    // A mirror that serves the wrong document cannot buy its way in with a hash override.
-    const mirrorUrl = courseSeed(2)!.mirrorUrl;
+  it("rejects a cross-course SHA override during configuration", async () => {
     process.env.SCHEDULE_SEED_PDF_SHA256_2 = ANUL_I_HASH;
     vi.resetModules();
-    const { checkForUpdates: freshCheck } = await import("@/lib/services/updater");
-    const { resetStorageCache: freshReset, getCurrentSchedule: freshRead } = await import("@/lib/storage");
-    freshReset();
-    stubFetch(cloudflareBlocked({ [mirrorUrl]: { body: anulIBytes } }));
 
     try {
-      const result = await freshCheck(2);
-      expect(result.outcome).not.toBe("seeded");
-      expect(result.message).toMatch(/course year mismatch/);
-      expect(await freshRead(2)).toBeNull();
+      await expect(import("@/lib/courses")).rejects.toThrow(
+        /SCHEDULE_SEED_PDF_SHA256_2.*course year 2.*must equal.*bundled/i,
+      );
     } finally {
       delete process.env.SCHEDULE_SEED_PDF_SHA256_2;
       vi.resetModules();
