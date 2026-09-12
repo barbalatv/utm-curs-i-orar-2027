@@ -14,6 +14,20 @@ jobs:
   verify:
     name: typecheck · lint · test · build
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v7
 
@@ -25,6 +39,18 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Apply committed PostgreSQL migrations
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+          SCHEDULE_DATA_DIR: .test-data/db-integration
+
+      - name: Run PostgreSQL integration tests
+        run: npm run test:db
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+          SCHEDULE_DATA_DIR: .test-data/db-integration
 
       - run: npm run typecheck
 
