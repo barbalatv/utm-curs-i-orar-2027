@@ -10,6 +10,7 @@ import { currentWeek, DAY_SHORT, formatDateTime, isOtherWeek, localNow, WEEK_PAR
 import { AllGroupsView } from "./AllGroupsView";
 import { DayTimeline } from "./DayTimeline";
 import { LessonCard } from "./LessonCard";
+import { ScheduleStatusBlock } from "./ScheduleStatusBlock";
 import { WeekBadge } from "./WeekBadge";
 
 type ViewMode = "today" | "week" | "all";
@@ -384,6 +385,11 @@ interface GroupScheduleProps {
 
 function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSelectDay, now, week }: GroupScheduleProps) {
   const lessonsFor = (day: DayName) => lessons.filter((lesson) => lesson.day === day);
+  const todayLessons = useMemo(
+    () => (todayName ? lessonsFor(todayName) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [todayName, lessons]
+  );
   return (
     <>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -411,6 +417,7 @@ function GroupSchedule({ group, days, lessons, view, activeDay, todayName, onSel
               </button>
             ))}
           </nav>
+          <ScheduleStatusBlock lessons={todayLessons} now={now} parity={week.parity} view={view} />
           {!todayName && activeDay && <p className="mb-3 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">Azi este weekend – afișăm ziua de {activeDay}.</p>}
           {activeDay && <DayTimeline day={activeDay} lessons={lessonsFor(activeDay)} now={now} focusGroup={group} activeParity={week.parity} />}
         </>
