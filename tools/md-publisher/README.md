@@ -42,7 +42,8 @@ may be cleared or refreshed. Dry-run preserves and reports a valid resumable att
 `status` reads broker operational state; `doctor` checks configuration, state-directory
 access, task registration, and broker connectivity.
 
-All commands accept `--json`. There is no publication `--force`. Normal publish/check
+All commands accept `--json` and `--state-dir <path>` (overrides `MD_PUBLISHER_STATE_DIR`).
+There is no publication `--force`. Normal publish/check
 outcomes (`unchanged`, `published`, `superseded`, `dry_run`) exit `0`; failed runs exit
 `1`; usage/configuration errors exit `2`. A successful publication does not mean Render
 accepted its timetable.
@@ -57,6 +58,9 @@ After configuring credentials, choose a logon model explicitly:
 
 For execution before logon, use `-LogonMode Password -User "MACHINE\account"` instead.
 Defaults are every 20 minutes with a 10-minute execution limit. S4U is not supported.
+`-StateDir "C:\Publisher state"` is forwarded to the scheduled process. The installer records
+`-TaskName` in that directory's `config.json`; run `doctor --state-dir "C:\Publisher state"`
+to check the recorded task. The default task name remains **FCIM MD Publisher**.
 See [Task Scheduler details](../../docs/publisher.md#windows-task-scheduler) for account,
 state-directory, and registration behavior.
 

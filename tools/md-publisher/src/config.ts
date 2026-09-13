@@ -14,6 +14,7 @@ import fs from "node:fs";
 import type { PublisherConfig } from "./types";
 
 export const PUBLISHER_VERSION = "1.0.0";
+export const SCHEDULED_TASK_NAME = "FCIM MD Publisher";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MIN_TOKEN_LENGTH = 32;
@@ -60,6 +61,7 @@ interface ConfigFile {
   state_dir?: unknown;
   timeout_ms?: unknown;
   logon_model?: unknown;
+  task_name?: unknown;
 }
 
 /** Optional on-disk defaults. The token is never read from here. */
@@ -67,11 +69,18 @@ function readConfigFile(stateDir: string): ConfigFile {
   const file = path.join(stateDir, "config.json");
   try {
     const raw = fs.readFileSync(file, "utf8");
-    const parsed: unknown = JSON.parse(raw);
+    // Windows PowerShell 5.1 writes a BOM with Set-Content -Encoding utf8.
+    const parsed: unknown = JSON.parse(raw.replace(/^\uFEFF/, ""));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as ConfigFile) : {};
   } catch {
     return {};
   }
+}
+
+/** Installer-recorded task identity; available even when broker configuration is incomplete. */
+export function loadTaskName(env: Record<string, string | undefined> = process.env): string {
+  const file = readConfigFile(env.MD_PUBLISHER_STATE_DIR?.trim() || defaultStateDir());
+  return (typeof file.task_name === "string" ? file.task_name.trim() : "") || SCHEDULED_TASK_NAME;
 }
 
 export interface LoadConfigOptions {

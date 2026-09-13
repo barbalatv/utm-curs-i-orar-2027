@@ -24,6 +24,8 @@ Usage:
   md-publisher status [--json]                print the broker's bounded operational state
   md-publisher doctor [--json]                check configuration, state and the scheduled task
 
+All commands accept --state-dir <path> to override MD_PUBLISHER_STATE_DIR.
+
 Environment:
   MD_PUBLISHER_BROKER_URL   broker origin (required)
   MD_PUBLISHER_TOKEN        publisher credential (required)
@@ -53,6 +55,17 @@ function defaultIo(): CliIo {
 export async function main(argv: readonly string[], io: CliIo = defaultIo()): Promise<number> {
   const args = [...argv];
   const command = args.shift();
+  const env = { ...io.env };
+  const stateDirIndex = args.indexOf("--state-dir");
+  if (stateDirIndex !== -1) {
+    const stateDir = args[stateDirIndex + 1];
+    if (!stateDir?.trim() || stateDir.startsWith("--")) {
+      io.err("--state-dir requires a non-empty path");
+      return 2;
+    }
+    env.MD_PUBLISHER_STATE_DIR = stateDir;
+    args.splice(stateDirIndex, 2);
+  }
   const json = args.includes("--json");
   const dryRun = args.includes("--dry-run");
 
@@ -76,21 +89,21 @@ export async function main(argv: readonly string[], io: CliIo = defaultIo()): Pr
   try {
     switch (command) {
       case "publish": {
-        const config = loadConfig({ env: io.env });
+        const config = loadConfig({ env });
         const result = await runPublish(config, io.transport, { dryRun, log: io.out });
         io.out(json ? JSON.stringify(result) : `${result.outcome}: ${result.reason || result.error || ""}`.trim());
         return result.exitCode;
       }
 
       case "check": {
-        const config = loadConfig({ env: io.env, requireToken: false });
+        const config = loadConfig({ env, requireToken: false });
         const result = await runCheck(config, io.transport, { log: io.out });
         io.out(json ? JSON.stringify(result) : `${result.outcome}: ${result.reason || result.error || ""}`.trim());
         return result.exitCode;
       }
 
       case "status": {
-        const config = loadConfig({ env: io.env });
+        const config = loadConfig({ env });
         const broker = new BrokerClient(config, io.transport);
         const status = await broker.status();
         io.out(JSON.stringify(status.body, null, json ? 0 : 2));
@@ -98,7 +111,7 @@ export async function main(argv: readonly string[], io: CliIo = defaultIo()): Pr
       }
 
       case "doctor": {
-        const report = await runDoctor({ env: io.env, transport: io.transport });
+        const report = await runDoctor({ env, transport: io.transport });
         if (json) {
           io.out(JSON.stringify(report));
         } else {

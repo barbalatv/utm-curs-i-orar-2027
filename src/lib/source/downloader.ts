@@ -66,6 +66,7 @@ export function isOfficialTimetablePdfUrl(rawUrl: string): boolean {
     url.username === "" &&
     url.password === "" &&
     url.hash === "" &&
+    url.search === "" &&
     OFFICIAL_TIMETABLE_PDF_PATH.test(url.pathname)
   );
 }

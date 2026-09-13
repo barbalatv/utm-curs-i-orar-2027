@@ -669,6 +669,62 @@ describe("Gate F: MD Publisher", () => {
     expect(JSON.stringify(report)).not.toContain(TEST_PUBLISHER_TOKEN);
   });
 
+  it("uses the CLI state directory ahead of environment and file defaults", async () => {
+    const customDir = path.join(stateDir, "custom state");
+    fs.mkdirSync(customDir);
+    fs.writeFileSync(path.join(customDir, "config.json"), JSON.stringify({
+      broker_url: FAKE_BROKER_ORIGIN,
+      state_dir: path.join(stateDir, "obsolete"),
+    }));
+    const { transport } = createTestTransport(broker, defaultScript());
+    const env = { MD_PUBLISHER_STATE_DIR: stateDir, MD_PUBLISHER_TOKEN: TEST_PUBLISHER_TOKEN };
+    const err = vi.fn();
+    expect(await main(["publish", "--state-dir", customDir, "--json"], {
+      env, transport, out: () => {}, err,
+    })).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+    expect(new StateStore(customDir).readLastRun()?.outcome).toBe("published");
+    expect(new StateStore(stateDir).readLastRun()).toBeNull();
+    expect(env.MD_PUBLISHER_STATE_DIR).toBe(stateDir);
+  });
+
+  it.each([[], [""], ["   "], ["--json"]])("rejects an absent or empty --state-dir value: %j", async (...values) => {
+    const err = vi.fn();
+    const { transport } = createTestTransport(broker, defaultScript());
+    expect(await main(["publish", "--state-dir", ...values], {
+      env: {}, transport, out: () => {}, err,
+    })).toBe(2);
+    expect(err).toHaveBeenCalledWith("--state-dir requires a non-empty path");
+  });
+
+  it.each(["InteractiveToken", "Password", "S4U", "missing"])("doctor queries the installer-recorded custom task (%s)", async (model) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const taskName = "FCIM Publisher — O'Brien & faculty";
+    // Match Windows PowerShell 5.1's actual UTF-8 BOM output.
+    fs.writeFileSync(path.join(stateDir, "config.json"), "\uFEFF" + JSON.stringify({ task_name: taskName }));
+    const runCommand = vi.fn(() => {
+      if (model === "missing") throw new Error("missing task");
+      return `<LogonType>${model}</LogonType>`;
+    });
+    const report = await runDoctor({
+      // Task diagnosis must still work while broker configuration is missing.
+      env: { MD_PUBLISHER_STATE_DIR: stateDir }, contactBroker: false, runCommand,
+    });
+    expect(runCommand).toHaveBeenCalledWith("schtasks", ["/Query", "/TN", taskName, "/XML", "ONE"]);
+    const task = report.checks.find((check) => check.name === "scheduled-task")!;
+    expect(task.detail).toContain(taskName);
+    expect(task.ok).toBe(model === "InteractiveToken" || model === "Password");
+  });
+
+  it.each([undefined, "", "  ", 42, false, []])("doctor defaults an absent or invalid task_name: %j", async (taskName) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    fs.writeFileSync(path.join(stateDir, "config.json"), JSON.stringify({ task_name: taskName }));
+    const runCommand = vi.fn(() => "<LogonType>InteractiveToken</LogonType>");
+    const report = await runDoctor({ env: { MD_PUBLISHER_STATE_DIR: stateDir }, contactBroker: false, runCommand });
+    expect(runCommand).toHaveBeenCalledWith("schtasks", ["/Query", "/TN", "FCIM MD Publisher", "/XML", "ONE"]);
+    expect(report.checks.find((check) => check.name === "scheduled-task")?.detail).toContain("FCIM MD Publisher");
+  });
+
   it("fails doctor with a corrective instruction when the task is registered with S4U", async () => {
     vi.spyOn(process, "platform", "get").mockReturnValue("win32");
     const registration = readTaskRegistration(() => "<Principal><LogonType>S4U</LogonType></Principal>");

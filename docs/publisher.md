@@ -79,12 +79,15 @@ silently. After reviewing that registration, explicitly replace it with the desi
 ```
 
 This installer `-Force` replaces the task registration; it is not a publication bypass.
-The installer records the logon model in the state directory's `config.json`.
+The installer records the logon model and task name in the state directory's `config.json`.
+`doctor` reads that `task_name` and identifies the task it checked; absent, empty, or non-string
+values fall back to **FCIM MD Publisher**.
 
-Keep the default task name if using `doctor`, which checks that name. For a custom state
-directory, persist `MD_PUBLISHER_STATE_DIR` for the task's account **and** supply the same
-directory to the installer's `-StateDir`. That parameter alone does not pass a state path
-to the scheduled Node process. Verify the reported directory after installation.
+For a custom state directory, supply `-StateDir "C:\Publisher state"` to the installer.
+It forwards that directory to the scheduled Node process in both logon modes. For manual
+commands, use `--state-dir "C:\Publisher state"` (which overrides `MD_PUBLISHER_STATE_DIR`)
+or set `MD_PUBLISHER_STATE_DIR`. Use the same directory for `doctor` so it reads the installed
+task name, including a custom `-TaskName`. Verify the reported directory after installation.
 
 Task Scheduler prevents overlap for that task; there is no separate local process lock
 for manual invocations. Avoid running two publishers against the same local state directory.
@@ -163,7 +166,7 @@ redirect. Page API redirects are refused.
 The state directory contains:
 
 ```text
-config.json           optional broker/timeout/state defaults and recorded logon model
+config.json           optional broker/timeout/state defaults, recorded logon model and task name
 state/last-run.json    schema-2 baseline cache, anchored by broker_snapshot_id
 run/operation.json    resumable operation
 run/page.json         exact Page API bytes used to open that operation
@@ -174,7 +177,7 @@ The token is never read from `config.json`. Environment settings take precedence
 config defaults. Old or unanchored last-run records are ignored. Losing the baseline
 cache or resume files does not erase broker freshness: the next run rebuilds its view
 from the broker. Removing the entire directory also removes optional configuration and
-logon-model information; preserve or recreate those settings when moving machines.
+logon-model/task-name information; preserve or recreate those settings when moving machines.
 
 ## Status, doctor, and heartbeats
 
