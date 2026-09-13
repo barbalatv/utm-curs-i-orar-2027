@@ -1012,4 +1012,199 @@ describe("publisher source acquisition, upload transport and CLI behavior", () =
 
     expect(fs.existsSync(tempFile)).toBe(false);
   });
+
+  it("rejects with ENOENT without unhandled error when destination parent directory does not exist", async () => {
+    const missingParentDestination = path.join(stateDir, "non-existent-dir", "destination.pdf");
+    const transport: Transport = {
+      get: async () => ({
+        status: 200,
+        headers: new Headers({
+          "content-type": "application/pdf",
+          etag: '"test-etag"',
+        }),
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(Buffer.from("%PDF-1.4 header\n"));
+          },
+        }),
+        cancel: async () => {},
+      }),
+      json: async () => {
+        throw new Error("unexpected json call");
+      },
+      upload: async () => {
+        throw new Error("unexpected upload call");
+      },
+    };
+
+    const promise = downloadPdf(transport, PDF_A, missingParentDestination, 5000);
+
+    await expect(promise).rejects.toSatisfy((err: any) => {
+      return err.code === "ENOENT" || (err instanceof Error && err.message.includes("ENOENT"));
+    });
+
+    expect(fs.existsSync(missingParentDestination)).toBe(false);
+  });
+
+  it("interrupts pending network read on mid-stream filesystem EIO, cancels reader, and cleans up partial file", async () => {
+    let capturedStream: fs.WriteStream | null = null;
+    let notifyFileReady!: () => void;
+    const fileReady = new Promise<void>((resolve) => {
+      notifyFileReady = resolve;
+    });
+    const origCreateWriteStream = fs.createWriteStream;
+    const createWriteStreamSpy = vi.spyOn(fs, "createWriteStream").mockImplementation((...args: any[]) => {
+      const stream = (origCreateWriteStream as any).apply(fs, args);
+      capturedStream = stream;
+      if (!stream.pending && stream.fd !== null) {
+        notifyFileReady();
+      } else {
+        stream.once("open", () => notifyFileReady());
+      }
+      return stream;
+    });
+
+    let readerCancelled = false;
+    let delayedChunkDelivered = false;
+    let finishDelayedPull: (() => void) | null = null;
+    let notifyDelayedPullPending!: () => void;
+    const delayedPullPending = new Promise<void>((resolve) => {
+      notifyDelayedPullPending = resolve;
+    });
+
+    const transport: Transport = {
+      get: async () => ({
+        status: 200,
+        headers: new Headers({
+          "content-type": "application/pdf",
+          etag: '"eio-test-etag"',
+        }),
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(Buffer.from("%PDF-1.4 test chunk\n"));
+          },
+          pull(controller) {
+            return new Promise<void>((resolve) => {
+              finishDelayedPull = () => {
+                if (!readerCancelled) {
+                  delayedChunkDelivered = true;
+                  try {
+                    controller.enqueue(Buffer.from("delayed second chunk\n"));
+                  } catch {
+                    // Controller already closed by cancel()
+                  }
+                }
+                resolve();
+              };
+              notifyDelayedPullPending();
+            });
+          },
+          cancel: async () => {
+            readerCancelled = true;
+          },
+        }),
+        cancel: async () => {
+          readerCancelled = true;
+        },
+      }),
+      json: async () => {
+        throw new Error("unexpected json call");
+      },
+      upload: async () => {
+        throw new Error("unexpected upload call");
+      },
+    };
+
+    const tempFile = path.join(stateDir, `eio-test-${Date.now()}.pdf`);
+
+    try {
+      const downloadPromise = downloadPdf(transport, PDF_A, tempFile, 5000);
+
+      await Promise.race([
+        Promise.all([delayedPullPending, fileReady]),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+
+      expect(capturedStream).not.toBeNull();
+      expect(finishDelayedPull).not.toBeNull();
+      expect(fs.existsSync(tempFile)).toBe(true);
+
+      const syntheticError = Object.assign(new Error("synthetic filesystem I/O failure"), { code: "EIO" });
+      capturedStream!.destroy(syntheticError);
+
+      await expect(downloadPromise).rejects.toSatisfy((err: any) => {
+        return err.code === "EIO" && err.message.includes("synthetic filesystem I/O failure");
+      });
+
+      expect(readerCancelled).toBe(true);
+      expect(delayedChunkDelivered).toBe(false);
+      expect(fs.existsSync(tempFile)).toBe(false);
+    } finally {
+      createWriteStreamSpy.mockRestore();
+      const finish = finishDelayedPull as (() => void) | null;
+      if (finish) {
+        finish();
+      }
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+    }
+  });
+
+  it("cleans up partial destination when stream end encounters an error", async () => {
+    const origCreateWriteStream = fs.createWriteStream;
+    const createWriteStreamSpy = vi.spyOn(fs, "createWriteStream").mockImplementation((...args: any[]) => {
+      const stream = (origCreateWriteStream as any).apply(fs, args);
+      const origEnd = stream.end.bind(stream);
+      stream.end = function (...endArgs: any[]) {
+        const cb = endArgs.find((a: any) => typeof a === "function");
+        if (cb) {
+          cb(Object.assign(new Error("synthetic flush failure on end"), { code: "EIO" }));
+          return stream;
+        }
+        return origEnd.apply(stream, endArgs);
+      };
+      return stream;
+    });
+
+    const transport: Transport = {
+      get: async () => ({
+        status: 200,
+        headers: new Headers({
+          "content-type": "application/pdf",
+          etag: '"end-test-etag"',
+        }),
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(Buffer.from("%PDF-1.4 test chunk\n"));
+            controller.close();
+          },
+        }),
+        cancel: async () => {},
+      }),
+      json: async () => {
+        throw new Error("unexpected json call");
+      },
+      upload: async () => {
+        throw new Error("unexpected upload call");
+      },
+    };
+
+    const tempFile = path.join(stateDir, `end-error-${Date.now()}.pdf`);
+
+    try {
+      const downloadPromise = downloadPdf(transport, PDF_A, tempFile, 5000);
+
+      await expect(downloadPromise).rejects.toSatisfy((err: any) => {
+        return err.code === "EIO" && err.message.includes("synthetic flush failure on end");
+      });
+
+      expect(fs.existsSync(tempFile)).toBe(false);
+    } finally {
+      createWriteStreamSpy.mockRestore();
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+    }
+  });
 });
