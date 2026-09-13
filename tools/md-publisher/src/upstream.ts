@@ -14,6 +14,7 @@
  * anything that can influence a URL — including the broker's own plan.
  */
 
+import { once } from "node:events";
 import fs from "node:fs";
 import crypto from "node:crypto";
 
@@ -261,10 +262,7 @@ export async function downloadPdf(
       }
       hash.update(chunk);
       if (!handle.write(chunk)) {
-        await new Promise<void>((resolve, reject) => {
-          handle.once("drain", resolve);
-          handle.once("error", reject);
-        });
+        await once(handle, "drain");
       }
     }
 
