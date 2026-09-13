@@ -234,6 +234,16 @@ export async function downloadPdf(
 
   const hash = crypto.createHash("sha256");
   const handle = fs.createWriteStream(destination);
+  let rejectWriteError!: (error: Error) => void;
+  const writeError = new Promise<never>((_, reject) => {
+    rejectWriteError = reject;
+  });
+  void writeError.catch(() => {});
+  const onWriteError = (error: Error) => {
+    rejectWriteError(error);
+  };
+  handle.on("error", onWriteError);
+
   const reader = response.body.getReader();
   let size = 0;
   let magicChecked = false;
@@ -241,7 +251,7 @@ export async function downloadPdf(
 
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await Promise.race([reader.read(), writeError]);
       if (done) break;
       if (!value || value.byteLength === 0) continue;
 
@@ -262,23 +272,28 @@ export async function downloadPdf(
       }
       hash.update(chunk);
       if (!handle.write(chunk)) {
-        await once(handle, "drain");
+        await Promise.race([once(handle, "drain"), writeError]);
       }
     }
 
     if (!magicChecked) {
       throw new UpstreamError(`PDF ${url} is shorter than a %PDF- signature`);
     }
+
+    await Promise.race([
+      new Promise<void>((resolve, reject) => {
+        handle.end((error?: Error | null) => (error ? reject(error) : resolve()));
+      }),
+      writeError,
+    ]);
   } catch (err) {
     handle.destroy();
     await reader.cancel().catch(() => {});
     fs.rmSync(destination, { force: true });
     throw err;
+  } finally {
+    handle.off("error", onWriteError);
   }
-
-  await new Promise<void>((resolve, reject) => {
-    handle.end((error?: Error | null) => (error ? reject(error) : resolve()));
-  });
 
   return {
     path: destination,
