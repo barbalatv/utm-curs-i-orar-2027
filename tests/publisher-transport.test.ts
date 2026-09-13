@@ -803,6 +803,7 @@ describe("publisher source acquisition, upload transport and CLI behavior", () =
   it("reports a healthy deployment from doctor", async () => {
     const { transport } = createTestTransport(broker, defaultScript());
     const report = await runDoctor({
+      platform: "win32",
       env: {
         MD_PUBLISHER_BROKER_URL: FAKE_BROKER_ORIGIN,
         MD_PUBLISHER_TOKEN: TEST_PUBLISHER_TOKEN,

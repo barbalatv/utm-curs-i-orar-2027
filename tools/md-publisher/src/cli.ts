@@ -22,16 +22,16 @@ Usage:
   md-publisher check [--json]                 report drift against the broker's current snapshot
                                               (read-only broker GETs; no mutation, no heartbeat)
   md-publisher status [--json]                print the broker's bounded operational state
-  md-publisher doctor [--json]                check configuration, state and the scheduled task
+  md-publisher doctor [--json]                check configuration, state and platform scheduler
 
 All commands accept --state-dir <path> to override MD_PUBLISHER_STATE_DIR.
 
 Environment:
   MD_PUBLISHER_BROKER_URL   broker origin (required)
   MD_PUBLISHER_TOKEN        publisher credential (required)
-  MD_PUBLISHER_STATE_DIR    local state root (default: %LOCALAPPDATA%\\fcim-md-publisher)
+  MD_PUBLISHER_STATE_DIR    local state root (LOCALAPPDATA/fcim-md-publisher or ~/.fcim-md-publisher)
   MD_PUBLISHER_TIMEOUT_MS   per-request timeout (default: 30000)
-  MD_PUBLISHER_LOGON_MODEL  reported in the heartbeat; set by install-task.ps1
+  MD_PUBLISHER_LOGON_MODEL  optional heartbeat label; Windows installer records its logon model
 
 The FCIM Page API endpoint is fixed by policy and is deliberately not configurable.
 `;

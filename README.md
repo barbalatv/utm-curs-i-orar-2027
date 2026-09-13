@@ -89,7 +89,7 @@ application remains the semantic authority that selects, parses, and validates i
 
 ```mermaid
 flowchart LR
-    FCIM[Official FCIM sources] --> Publisher[MD Publisher]
+    FCIM[Official FCIM sources] --> Publisher[Publisher host / MD Publisher]
     Publisher --> Broker[Cloudflare Broker / R2]
     Broker --> App[Render application]
     App -->|Accepted state| Broker
@@ -111,6 +111,10 @@ The effective cold-start recovery order is:
 
 The scheduler and cache coordination run within one process; deploy one application replica.
 See [architecture](docs/architecture.md) for update ordering, recovery, and maintenance.
+The current production publisher runs on a dedicated Debian host under a user-level
+systemd timer; Windows Task Scheduler remains an optional deployment. See
+[publisher operations](docs/publisher.md#current-production-deployment-debian-user-systemd)
+for installation, diagnostics, and the manual update/rebuild procedure.
 
 ## API
 

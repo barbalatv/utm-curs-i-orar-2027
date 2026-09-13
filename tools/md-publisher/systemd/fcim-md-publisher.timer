@@ -1,0 +1,11 @@
+[Unit]
+Description=Run FCIM MD Publisher every 20 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=20min
+Persistent=true
+Unit=fcim-md-publisher.service
+
+[Install]
+WantedBy=timers.target

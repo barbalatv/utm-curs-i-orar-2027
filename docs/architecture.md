@@ -57,6 +57,12 @@ freshness baseline is the snapshot named by the broker's `current.json`. Local
 `state/last-run.json` is usable only while it names that same snapshot. Otherwise the
 publisher rebuilds the baseline from the broker's manifest and archived Page API bytes.
 
+The steady-state flow is **Publisher host → Cloudflare Broker → Render semantic
+acceptance**. The publisher CLI is platform-independent; an external user-systemd timer
+or Windows Task Scheduler can invoke it, and manual invocation is available for operations
+and development. See [current production deployment](publisher.md#current-production-deployment-debian-user-systemd)
+for the verified host and scheduler configuration.
+
 The publisher conditionally checks the page and each PDF. A conditional PDF request
 returning `200` triggers publication even when the page and URL are unchanged. When no
 usable validator exists, it downloads and compares hashes. An upstream failure is an

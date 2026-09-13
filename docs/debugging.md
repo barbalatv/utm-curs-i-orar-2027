@@ -201,17 +201,25 @@ a `Durable to local resync failed` message calls for checking cache write access
 
 On the publisher machine, from `tools/md-publisher`:
 
-```powershell
-node .\dist\tools\md-publisher\src\index.js status --json
-node .\dist\tools\md-publisher\src\index.js doctor --json
-node .\dist\tools\md-publisher\src\index.js check --json
+```text
+node dist/tools/md-publisher/src/index.js status --json
+node dist/tools/md-publisher/src/index.js doctor --json
+node dist/tools/md-publisher/src/index.js check --json
 ```
 
 `status` reads authenticated `/publication-status`: current snapshot age, open publications,
 publisher heartbeat and age, accepted pointers, and warnings. `doctor` checks configuration,
-state-directory writability, Windows task registration, and broker connectivity; it is
+state-directory writability, Linux user-systemd deployment or Windows task registration,
+and broker connectivity; it is
 not an upstream FCIM connectivity test. `check` compares FCIM with the broker baseline
 without publishing. See [publisher troubleshooting](publisher.md#troubleshooting).
+
+The current production publisher runs on a dedicated Debian host under a user-level
+systemd timer. Use the [service-environment helper](publisher.md#manual-commands-using-the-service-environment)
+for these commands there; an SSH shell does not automatically inherit the private env
+file. Pause the timer and wait for the service to finish before `check`, which can touch
+local cache files. See the [safe update procedure](publisher.md#safe-manual-deployment-update)
+before changing code or rebuilding the scheduled executable.
 
 ## Authenticated refresh
 
