@@ -169,3 +169,70 @@ export function dayBanner(lessons: Lesson[], now: LocalNow, day: DayName): strin
   if (next) return `Următoarea lecție la ${next.start_time}`;
   return "Lecțiile de azi s-au încheiat";
 }
+
+
+export type AziScheduleStatus =
+  | {
+      state: "no_lessons";
+    }
+  | {
+      state: "current";
+      lessons: Lesson[];
+    }
+  | {
+      state: "next";
+      lessons: Lesson[];
+      minutesUntil: number;
+    }
+  | {
+      state: "finished";
+    };
+
+/**
+ * Classifies a pre-filtered list of lessons for today (for a selected group and active parity)
+ * relative to the provided time in Europe/Chisinau.
+ *
+ * Evaluation rules for [start, end):
+ * - now < start: lesson has not started yet.
+ * - start <= now < end: lesson is current.
+ * - now >= end: lesson is past.
+ */
+export function getAziScheduleStatus(
+  lessons: Lesson[],
+  now: LocalNow,
+): AziScheduleStatus {
+  if (lessons.length === 0) {
+    return { state: "no_lessons" };
+  }
+
+  const currentLessons: Lesson[] = [];
+  let earliestFutureStart = Number.POSITIVE_INFINITY;
+
+  for (const lesson of lessons) {
+    const start = toMinutes(lesson.start_time);
+    const end = toMinutes(lesson.end_time);
+
+    if (now.minutes >= start && now.minutes < end) {
+      currentLessons.push(lesson);
+    } else if (start > now.minutes && start < earliestFutureStart) {
+      earliestFutureStart = start;
+    }
+  }
+
+  if (currentLessons.length > 0) {
+    return { state: "current", lessons: currentLessons };
+  }
+
+  if (Number.isFinite(earliestFutureStart)) {
+    const nextLessons = lessons.filter(
+      (lesson) => toMinutes(lesson.start_time) === earliestFutureStart,
+    );
+    return {
+      state: "next",
+      lessons: nextLessons,
+      minutesUntil: earliestFutureStart - now.minutes,
+    };
+  }
+
+  return { state: "finished" };
+}
