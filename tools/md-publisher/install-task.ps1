@@ -112,9 +112,22 @@ if (Test-Path $configPath) {
     }
 }
 $config['logon_model'] = $LogonMode
+$config['task_name'] = $TaskName
 $config | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding utf8
 
-$action = New-ScheduledTaskAction -Execute $node.Source -Argument "`"$entryPoint`" publish" -WorkingDirectory $scriptRoot
+# Quote a Windows native argument, including backslashes before quotes or a closing quote.
+# The action invokes Node directly; no shell interprets the state path.
+function Quote-NativeArgument([string] $Value) {
+    return '"' + ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+}
+
+$arguments = "$(Quote-NativeArgument $entryPoint) publish"
+if ($PSBoundParameters.ContainsKey('StateDir') -and $PSBoundParameters['StateDir']) {
+    # Resolve relative paths before Task Scheduler switches to the publisher working directory.
+    $StateDir = (Get-Item -LiteralPath $StateDir).FullName
+    $arguments += " --state-dir $(Quote-NativeArgument $StateDir)"
+}
+$action = New-ScheduledTaskAction -Execute $node.Source -Argument $arguments -WorkingDirectory $scriptRoot
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
@@ -159,4 +172,7 @@ if ($LogonMode -eq 'Password') {
 Write-Host ''
 Write-Host "Registered '$TaskName' (LogonMode: $LogonMode, every $IntervalMinutes minutes, execution time limit $ExecutionTimeLimitMinutes minutes)."
 Write-Host 'Set MD_PUBLISHER_BROKER_URL and MD_PUBLISHER_TOKEN for this account before the first run.'
-Write-Host "Verify with:  node `"$entryPoint`" doctor"
+$verifyEntryPoint = $entryPoint.Replace("'", "''")
+# PowerShell 5.1 mishandles a quoted trailing backslash when passing a path to Node.
+$verifyStateDir = [IO.Path]::GetFullPath((Join-Path $StateDir '.')).Replace("'", "''")
+Write-Host "Verify with:  node '$verifyEntryPoint' doctor --state-dir '$verifyStateDir'"

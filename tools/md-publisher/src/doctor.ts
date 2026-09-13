@@ -9,13 +9,11 @@
 
 import { execFileSync } from "node:child_process";
 
-import { ConfigError, loadConfig } from "./config";
+import { ConfigError, loadConfig, loadTaskName, SCHEDULED_TASK_NAME } from "./config";
 import { StateStore } from "./state";
 import { BrokerClient } from "./broker";
 import { PAGE_API_URL } from "./upstream";
 import type { PublisherConfig, Transport } from "./types";
-
-export const SCHEDULED_TASK_NAME = "FCIM MD Publisher";
 
 export type LogonModel = "Interactive" | "Password" | "S4U" | "InteractiveOrPassword" | "Unknown";
 
@@ -47,15 +45,16 @@ const LOGON_TYPE_MAP: Record<string, LogonModel> = {
 /** Read the registered task definition. Returns "not installed" rather than throwing. */
 export function readTaskRegistration(
   run: (command: string, args: string[]) => string = defaultRunner,
+  taskName: string = SCHEDULED_TASK_NAME,
 ): TaskRegistration {
   if (process.platform !== "win32") {
     return { installed: false, logonModel: "Unknown", detail: "Windows Task Scheduler is not available on this platform" };
   }
   let xml: string;
   try {
-    xml = run("schtasks", ["/Query", "/TN", SCHEDULED_TASK_NAME, "/XML", "ONE"]);
+    xml = run("schtasks", ["/Query", "/TN", taskName, "/XML", "ONE"]);
   } catch {
-    return { installed: false, logonModel: "Unknown", detail: `No scheduled task named "${SCHEDULED_TASK_NAME}"` };
+    return { installed: false, logonModel: "Unknown", detail: `No scheduled task named "${taskName}"` };
   }
   const match = /<LogonType>([^<]+)<\/LogonType>/i.exec(xml);
   if (!match) {
@@ -108,10 +107,11 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
     add("state-directory", writable, writable ? config.stateDir : `${config.stateDir} is not writable`);
   }
 
-  const registration = readTaskRegistration(options.runCommand);
+  const taskName = loadTaskName(options.env);
+  const registration = readTaskRegistration(options.runCommand, taskName);
   let logonModel: LogonModel | "not-applicable" = "not-applicable";
   if (process.platform !== "win32") {
-    add("scheduled-task", true, "not applicable on this platform");
+    add("scheduled-task", true, `Task "${taskName}": not applicable on this platform`);
   } else if (!registration.installed) {
     add("scheduled-task", false, `${registration.detail}; run install-task.ps1 -LogonMode Interactive`);
   } else if (registration.logonModel === "S4U") {
@@ -119,12 +119,13 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
     add(
       "scheduled-task",
       false,
-      'Task is registered with S4U. Re-register it: .\\install-task.ps1 -LogonMode Interactive ' +
+      `Task "${taskName}" is registered with S4U. Re-register it: .\\install-task.ps1 -LogonMode Interactive ` +
+        `-TaskName '${taskName.replace(/'/g, "''")}' ` +
         '(or -LogonMode Password -User "<account>" if it must run before logon).',
     );
   } else {
     logonModel = registration.logonModel;
-    add("scheduled-task", true, `logon model: ${registration.logonModel} (${registration.detail})`);
+    add("scheduled-task", true, `Task "${taskName}": logon model: ${registration.logonModel} (${registration.detail})`);
   }
 
   if (config && options.transport && options.contactBroker !== false && token) {
