@@ -11,6 +11,7 @@
  */
 
 import { mkdtemp, rm } from "node:fs/promises";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -21,11 +22,12 @@ import {
   resolveOfficialTimetablePdfRedirect,
 } from "../worker-shared/fcim-policy";
 import { runCheck, runPublish } from "../tools/md-publisher/src/publish";
+import { downloadPdf } from "../tools/md-publisher/src/upstream";
 import { runDoctor, readTaskRegistration } from "../tools/md-publisher/src/doctor";
 import { ConfigError, loadConfig, normalizeBrokerUrl } from "../tools/md-publisher/src/config";
 import { StateStore } from "../tools/md-publisher/src/state";
 import { main } from "../tools/md-publisher/src/cli";
-import type { PublisherConfig } from "../tools/md-publisher/src/types";
+import type { PublisherConfig, Transport } from "../tools/md-publisher/src/types";
 import {
   createTestTransport,
   FAKE_BROKER_ORIGIN,
@@ -908,5 +910,106 @@ describe("publisher source acquisition, upload transport and CLI behavior", () =
     });
     expect(missing.installed).toBe(false);
     expect(missing.detail).toMatch(/No scheduled task named/);
+  });
+
+  /* ---------------------------------------------------------------- *
+   * Backpressure and stream listener lifecycle
+   * ---------------------------------------------------------------- */
+
+  it("downloads large PDF without leaking error listeners across backpressure cycles", async () => {
+    const chunkCount = 20;
+    const chunkSize = 256 * 1024; // 256 KiB per chunk, well above WriteStream default highWaterMark
+    let chunkIndex = 0;
+
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (chunkIndex >= chunkCount) {
+          controller.close();
+          return;
+        }
+        const chunk = Buffer.alloc(chunkSize, 0x61 + (chunkIndex % 26));
+        if (chunkIndex === 0) {
+          chunk.write("%PDF-1.4 test\n", 0, "ascii");
+        }
+        chunkIndex++;
+        controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+      },
+    });
+
+    const expectedHasher = crypto.createHash("sha256");
+    for (let i = 0; i < chunkCount; i++) {
+      const chunk = Buffer.alloc(chunkSize, 0x61 + (i % 26));
+      if (i === 0) {
+        chunk.write("%PDF-1.4 test\n", 0, "ascii");
+      }
+      expectedHasher.update(chunk);
+    }
+    const expectedSha256 = expectedHasher.digest("hex");
+    const expectedSize = chunkCount * chunkSize;
+
+    const transport: Transport = {
+      get: async () => ({
+        status: 200,
+        headers: new Headers({
+          "content-type": "application/pdf",
+          etag: '"backpressure-etag"',
+          "last-modified": "Sun, 13 Sep 2026 12:00:00 GMT",
+        }),
+        body: stream,
+        cancel: async () => {},
+      }),
+      json: async () => {
+        throw new Error("unexpected json call");
+      },
+      upload: async () => {
+        throw new Error("unexpected upload call");
+      },
+    };
+
+    const tempFile = path.join(stateDir, `backpressure-${Date.now()}.pdf`);
+
+    const warningCalls: unknown[][] = [];
+    const origEmitWarning = process.emitWarning.bind(process);
+    const emitWarningSpy = vi.spyOn(process, "emitWarning").mockImplementation((...args: any[]) => {
+      warningCalls.push(args);
+      const [first, second] = args;
+      const isMaxListeners =
+        (first instanceof Error && first.name === "MaxListenersExceededWarning") ||
+        (typeof first === "string" && first.includes("MaxListenersExceededWarning")) ||
+        second === "MaxListenersExceededWarning";
+      if (!isMaxListeners) {
+        (origEmitWarning as any)(...args);
+      }
+    });
+
+    try {
+      const result = await downloadPdf(transport, PDF_A, tempFile, 5000);
+
+      expect(result.size).toBe(expectedSize);
+      expect(result.sha256).toBe(expectedSha256);
+      expect(result.path).toBe(tempFile);
+      expect(result.etag).toBe('"backpressure-etag"');
+      expect(result.lastModified).toBe("Sun, 13 Sep 2026 12:00:00 GMT");
+
+      expect(fs.existsSync(tempFile)).toBe(true);
+      expect(fs.statSync(tempFile).size).toBe(expectedSize);
+
+      const maxListenersWarnings = warningCalls.filter((args: unknown[]) => {
+        const [first, second] = args;
+        return (
+          (first instanceof Error && first.name === "MaxListenersExceededWarning") ||
+          (typeof first === "string" && first.includes("MaxListenersExceededWarning")) ||
+          second === "MaxListenersExceededWarning"
+        );
+      });
+      expect(maxListenersWarnings).toHaveLength(0);
+    } finally {
+      emitWarningSpy.mockRestore();
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+    }
+
+    expect(fs.existsSync(tempFile)).toBe(false);
   });
 });
