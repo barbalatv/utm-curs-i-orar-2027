@@ -7,7 +7,7 @@
     is not offered at all:
 
       Interactive  the task runs only while the account is logged on. This is the recommended
-                   model for the current laptop, which stays logged in.
+                   model for a publisher host whose task account stays logged in.
       Password     the task stores the account password and can run before logon. Choose this
                    only when unattended pre-logon execution is actually required.
 
@@ -24,7 +24,7 @@
     .\install-task.ps1 -LogonMode Interactive
 
 .EXAMPLE
-    .\install-task.ps1 -LogonMode Password -User "LAPTOP\publisher"
+    .\install-task.ps1 -LogonMode Password -User "MACHINE\publisher"
 #>
 
 [CmdletBinding()]

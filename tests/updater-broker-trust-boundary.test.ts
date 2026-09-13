@@ -1,20 +1,20 @@
 /**
- * Gate F: the seam between the MD Publisher and Render.
+ * Trust boundary between the publisher, broker and Render updater.
  *
  * These tests run the real broker Worker and the real Render updater against each other. Render's
  * global `fetch` is pointed at the Worker's own routing, and candidate bytes are published the way
- * the Moldova laptop publishes them, so nothing here is a stub of the thing under test.
+ * the publisher host publishes them, so nothing here is a stub of the thing under test.
  *
  * Two properties are load-bearing:
  *
- *  DF-02  A publisher-observed HTTP validator must never reach Render's trusted ETag fast-path.
- *         Render may skip a download only on evidence the *broker* vouches for; a laptop that
- *         claims "ETag unchanged" while shipping different bytes must not be able to freeze the
- *         timetable Render serves.
+ *  Validator authority: a publisher-observed HTTP validator must never reach Render's trusted
+ *  ETag fast-path. Render may skip a download only on evidence the *broker* vouches for; a
+ *  publisher that claims "ETag unchanged" while shipping different bytes must not be able to
+ *  freeze the timetable Render serves.
  *
- *  GF-H01 Automatic recovery from a publisher-credential compromise is guaranteed only while the
- *         poisoned candidate has not become durable accepted state. Once it has, clearing local
- *         Render state re-synchronises the poisoned durable state instead of recovering from it.
+ *  Compromise recovery: automatic recovery from a publisher-credential compromise is guaranteed
+ *  only while the poisoned candidate has not become durable accepted state. Once it has, clearing
+ *  local Render state re-synchronises the poisoned durable state instead of recovering from it.
  */
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -64,7 +64,7 @@ function renderPagePayload(modifiedGmt = "2026-09-08T12:57:59"): string {
   ]);
 }
 
-describe("Gate F: Render trust boundary and compromise recovery", () => {
+describe("Render trust boundary and compromise recovery", () => {
   let tempDir: string;
   let broker: WorkerHarness;
   let genuineBytes: Uint8Array;
@@ -79,7 +79,7 @@ describe("Gate F: Render trust boundary and compromise recovery", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(path.join(tmpdir(), "fcim-gate-f-"));
+    tempDir = await mkdtemp(path.join(tmpdir(), "fcim-updater-broker-trust-"));
     (config as { dataDir: string }).dataDir = tempDir;
     (config as { brokerUrl: string }).brokerUrl = BROKER_ORIGIN;
     (config as { brokerSecret: string }).brokerSecret = "test-secret";
@@ -119,7 +119,7 @@ describe("Gate F: Render trust boundary and compromise recovery", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  /** Publish one candidate through the publisher API, exactly as the laptop would. */
+  /** Publish one candidate through the publisher API, exactly as the publisher host would. */
   async function publish(bytes: Uint8Array, observedEtag?: string): Promise<string> {
     const result = await publishThroughApi(broker, {
       page: renderPagePayload(),
@@ -157,7 +157,7 @@ describe("Gate F: Render trust boundary and compromise recovery", () => {
   }
 
   /* ---------------------------------------------------------------- *
-   * DF-02
+   * Publisher-observed validators remain untrusted
    * ---------------------------------------------------------------- */
 
   it("downloads and applies changed candidate bytes even when the publisher-observed ETag matches Render's own", async () => {
@@ -200,7 +200,7 @@ describe("Gate F: Render trust boundary and compromise recovery", () => {
     const result = await checkForUpdates(1);
 
     // "hash unchanged" is only reachable after the bytes were downloaded and hashed, and only
-    // before anything is parsed — which is exactly the ordering DF-02 requires.
+    // before anything is parsed, preserving the validator trust boundary.
     expect(candidateDownloads().length).toBeGreaterThan(0);
     expect(result.outcome).toBe("unchanged");
     expect(result.message).toMatch(/hash unchanged/i);
@@ -208,7 +208,7 @@ describe("Gate F: Render trust boundary and compromise recovery", () => {
   });
 
   /* ---------------------------------------------------------------- *
-   * GF-H01: what compromise recovery does and does not guarantee
+   * what compromise recovery does and does not guarantee
    * ---------------------------------------------------------------- */
 
   it("recovers automatically when a poisoned candidate was published but never accepted", async () => {
@@ -240,7 +240,7 @@ describe("Gate F: Render trust boundary and compromise recovery", () => {
     // The operator rotates the credential and clears Render's local state, which is the
     // intuitive-but-insufficient response.
     await rm(tempDir, { recursive: true, force: true });
-    tempDir = await mkdtemp(path.join(tmpdir(), "fcim-gate-f-"));
+    tempDir = await mkdtemp(path.join(tmpdir(), "fcim-updater-broker-trust-"));
     (config as { dataDir: string }).dataDir = tempDir;
     resetStorageCache();
     expect(await getCurrentSchedule(1)).toBeNull();
@@ -255,7 +255,7 @@ describe("Gate F: Render trust boundary and compromise recovery", () => {
     const stillPoisoned = (await (await fetch(`${BROKER_ORIGIN}/accepted/course-1`)).json()) as AcceptedPointer;
     expect(stillPoisoned.accepted_id).toBe(poisonedPointer.accepted_id);
 
-    // GF-H01 (HIGH, deferred): an operator-driven durable accepted-state rollback. Until it
+    // Deferred: an operator-driven durable accepted-state rollback. Until it
     // exists, automatic recovery after a compromise is guaranteed only for candidate material
     // that never became accepted state.
     expect(poisonedPointer.source_pdf_hash).not.toBe(genuineHash);

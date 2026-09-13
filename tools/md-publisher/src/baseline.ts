@@ -2,13 +2,13 @@
  * The authoritative freshness baseline.
  *
  * There is exactly one correct answer to "what is the broker serving right now", and it is the
- * snapshot `current.json` names — never what this laptop happens to remember. That distinction is
+ * snapshot `current.json` names — never the publisher's local cache. That distinction is
  * the whole point of this file, and it is what stops the following wedge:
  *
  *   1. the publisher observes upstream state B and opens a publication for it;
  *   2. another publication A wins the `current.json` CAS while B is still uploading;
  *   3. B completes as `superseded`, which is a normal outcome and not an error;
- *   4. a laptop that recorded B as its baseline then sees FCIM still at B, calls it "unchanged",
+ *   4. a publisher process that recorded B as its baseline then sees FCIM still at B, calls it "unchanged",
  *      and the broker stays on A forever.
  *
  * Step 4 is impossible here: a local record is consulted only when it is *anchored*, meaning it
@@ -83,7 +83,7 @@ export async function brokerSnapshotBaseline(
     origin: "broker_snapshot",
     broker_snapshot_id: snapshotId,
     page_api_sha256: sha256Hex(pageBytes),
-    // The snapshot records no trusted page validator (DF-02), so the next Page API request is
+    // The snapshot records no trusted page validator, so the next Page API request is
     // unconditional and decided by hash. Strictly stronger evidence than a validator.
     page_etag: null,
     page_last_modified: null,
@@ -139,7 +139,7 @@ export async function resolveBaseline(
     };
   }
   if (last) {
-    // The wedge, refused out loud: this laptop's memory describes a snapshot the broker is not
+    // The wedge, refused out loud: the publisher's local cache describes a snapshot the broker is not
     // serving, so it says nothing at all about whether the broker is up to date.
     log(
       `ignoring the local freshness cache: it describes ${last.broker_snapshot_id ?? "an unknown snapshot"}, ` +

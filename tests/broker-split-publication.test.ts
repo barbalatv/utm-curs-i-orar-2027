@@ -1,12 +1,11 @@
 /**
- * Audit E-02 / NR-A regression suite: staged candidate publication.
+ * Staged candidate publication through authenticated publisher uploads.
  *
- * Gate F replaced the queue-driven acquisition stages with authenticated MD Publisher uploads,
- * but the properties worth pinning down are unchanged and are still the ones that hold *between*
- * requests: opening a publication never publishes, an unfinished publication never becomes
- * current, every step is safe to repeat, and a stale completion loses the CAS.
+ * The guarantees hold between requests: opening a publication never publishes, an unfinished
+ * publication never becomes current, every step is safe to repeat, and a stale completion
+ * loses the CAS.
  *
- * NR-A is the reason this file exists: the broker mirrors every strictly-valid official timetable
+ * The broker mirrors every strictly-valid official timetable
  * PDF the authoritative page references, including names it cannot interpret, because
  * `discoverPdf()` on Render is the only thing allowed to decide what a timetable means.
  */
@@ -32,7 +31,7 @@ import { createHarness, drainQueue, type WorkerHarness } from "./helpers/worker-
 const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
 const PDF_BODY = pdfBody("shared");
 
-/** After Gate F no broker code path may reach the Internet; a call here is a test failure. */
+/** No broker code path may reach the Internet; a call here is a test failure. */
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -64,7 +63,7 @@ async function uploadAll(h: WorkerHarness, plan: PlanResponse, body = PDF_BODY):
 
 describe("staged publication: opening a publication", () => {
   it("mirrors every strictly-valid official PDF, including names it cannot interpret", async () => {
-    // NR-A: the deleted `anul_(i|ii)` filename filter would have starved discoverPdf() of these.
+    // Filename interpretation belongs to Render; filtering these names would starve discoverPdf().
     const h = harness();
     const plan = await open(
       h,

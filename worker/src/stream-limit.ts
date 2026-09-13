@@ -7,6 +7,9 @@
  * the whole body in memory.
  */
 
+/** Maximum accepted size of one uploaded timetable PDF. */
+export const MAX_PDF_BYTES = 25 * 1024 * 1024;
+
 export class ContentPrefixError extends Error {
   constructor(message: string) {
     super(message);

@@ -23,7 +23,7 @@ export interface R2PutOptions {
   httpMetadata?: R2HTTPMetadata | Headers;
   customMetadata?: Record<string, string>;
   /**
-   * Server-side content checksum (DF-05). R2 validates the uploaded bytes against this digest
+   * Server-side content checksum. R2 validates the uploaded bytes against this digest
    * and rejects the write when they disagree, so unverified bytes never become a final object.
    * Hex string or raw digest bytes.
    */
@@ -113,15 +113,9 @@ export interface ScheduledEvent {
   scheduledTime: number;
 }
 
-/** Minimal HTTP Service Binding surface used by the Stockholm transport Worker. */
-export interface ServiceBinding {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-}
-
 export interface Env {
   R2_BUCKET: R2Bucket;
   PUBLICATION_QUEUE: Queue<PublicationJob>;
-  FCIM_EGRESS: ServiceBinding;
   /** Accepted-state credential. Render only. Never accepted by a publisher route. */
   SCHEDULE_BROKER_SECRET?: string;
   /** MD Publisher credential. Transport only. Never accepted by an accepted-state route. */
@@ -155,8 +149,8 @@ export interface ReconcileJob {
 /**
  * The complete set of background work the broker performs.
  *
- * Gate F removed `discover` and `ingest_pdf`: no queue or cron path may reach FCIM. Candidate
- * bytes now arrive only through authenticated MD Publisher requests, so the background handlers
+ * No queue or cron path may reach FCIM; legacy `discover` and `ingest_pdf` jobs are rejected.
+ * Candidate bytes arrive only through authenticated MD Publisher requests, so background handlers
  * are limited to closing and reconciling snapshots that already exist in storage.
  */
 export type PublicationJob = FinalizeJob | ReconcileJob;
@@ -196,7 +190,7 @@ export interface PendingDescriptor {
   created_at: string;
   /** R2 ETag of current.json observed when the publication opened; finalize must still match it. */
   current_etag: string | null;
-  /** Client-generated publication attempt identity (DF-01). Never the Page API hash. */
+  /** Client-generated publication attempt identity. Never the Page API hash. */
   operation_id: string;
   /** SHA-256 of the exact Page API bytes this publication was opened with (provenance only). */
   page_api_sha256: string;
@@ -207,7 +201,7 @@ export interface PendingDescriptor {
 }
 
 /**
- * Create-only record binding one client publication attempt to one broker snapshot (DF-01/DF-06).
+ * Create-only record binding one client publication attempt to one broker snapshot.
  *
  * Identity is the client's UUIDv4, not the Page API hash: the same page bytes may legitimately be
  * republished when FCIM replaces a PDF in place under an unchanged URL, and two different attempts
@@ -244,7 +238,7 @@ export interface PublisherHeartbeat {
  * Immutable per-file completion marker. Concurrent uploads write disjoint keys,
  * so a completion can never be lost the way a shared mutable counter can.
  *
- * DF-02: `upstream_etag` and `upstream_last_modified` are the *trusted* validators Render is
+ * `upstream_etag` and `upstream_last_modified` are the *trusted* validators Render is
  * allowed to short-circuit on, and a publisher-observed validator is not one of them. For
  * MD-published files both are always null; whatever the publisher saw is recorded separately
  * under `publisher_observed_*`, which nothing on Render reads.

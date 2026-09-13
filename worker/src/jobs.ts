@@ -1,11 +1,11 @@
 /**
  * The contract between publication stages, and the canonical shape of one planned transport file.
  *
- * A job carries only validated, immutable identifiers — never a decision. Gate F removed the two
- * job kinds that reached the Internet (`discover`, `ingest_pdf`); the queue now carries nothing
- * but "close this snapshot" and "reconcile", so a queue message can no longer name a URL at all.
+ * A job carries only validated, immutable identifiers — never a decision. Queue jobs are limited
+ * to finalize and reconcile, so a queue message cannot name a URL. Legacy acquisition job kinds
+ * (`discover`, `ingest_pdf`) are rejected without execution.
  *
- * `validatePendingFile()` keeps the GE-N01 filename/URL/key policy in one place. Publication
+ * `validatePendingFile()` keeps the canonical filename/URL/key policy in one place. Publication
  * planning, descriptor validation and publisher uploads all re-derive the same answer from it,
  * on receipt, because a stored descriptor is input like any other.
  */

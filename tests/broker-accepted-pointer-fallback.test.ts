@@ -65,7 +65,7 @@ vi.mock("@/lib/storage", async (importOriginal) => {
 });
 
 const BROKER_URL = "https://broker.fcim.internal";
-const BROKER_SECRET = "gate-f-broker-secret";
+const BROKER_SECRET = "accepted-pointer-test-secret";
 
 /**
  * Candidate selection runs the production `discoverPdf()` against the real wall clock, and the
@@ -394,7 +394,7 @@ describe("broker accepted-pointer CAS fallback (ac75d22)", () => {
     expect(after!.accepted_id).not.toBe(pointerA.accepted_id);
     expect(after!.source_pdf_hash).toBe(hash18);
 
-    // GF-F02: the whole installation sequence, not just where it ended up. Exactly one install,
+    // the whole installation sequence, not just where it ended up. Exactly one install,
     // and it is the candidate. A transient install of the SHA-invalid payload — which the
     // candidate would then overwrite, leaving final state indistinguishable — is an extra entry
     // here and fails the test.

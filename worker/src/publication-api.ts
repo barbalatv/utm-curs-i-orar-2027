@@ -5,7 +5,7 @@
  * attempt identity, and the broker derives everything else. No request field on any of these
  * routes becomes an R2 key, a filename, a source URL, a snapshot id or a pointer value — those
  * are all re-derived from the broker's own plan, which was itself derived from the Page API bytes
- * with the same code the retired discovery stage used.
+ * using the canonical source-document extraction policy.
  *
  *   POST /publications                        open (or resume) one publication
  *   GET  /publications/:snapshot_id           the broker's plan and per-file upload state
@@ -26,7 +26,6 @@ import {
 } from "./keys";
 import { FILE_ID_REGEX } from "./jobs";
 import { PENDING_MAX_AGE_MS, snapshotIdInstant, snapshotWorkExpired } from "./maintenance";
-import { MAX_PDF_BYTES } from "./pdf-fetch";
 import { SNAPSHOT_ID_REGEX, parseCurrentPointer } from "./pointer";
 import { authorizePublisher } from "./publisher-auth";
 import {
@@ -40,6 +39,7 @@ import {
   storedFileIds,
 } from "./publisher";
 import {
+  MAX_PDF_BYTES,
   PDF_MAGIC,
   PayloadTooLargeError,
   contentLengthOrNull,
@@ -267,7 +267,7 @@ function markerFor(
     r2_key: file.r2_key,
     content_type: "application/pdf",
     size: meta.size,
-    // DF-02: the trusted validators stay null for every publisher-authored file.
+    // The trusted validators stay null for every publisher-authored file.
     upstream_etag: null,
     upstream_last_modified: null,
     publisher_observed_etag: meta.observedEtag,
@@ -365,7 +365,7 @@ export async function handleUploadPublicationFile(
           onlyIf: IF_NONE_MATCH_COND,
           httpMetadata: { contentType: "application/pdf" },
           customMetadata,
-          // DF-05: R2 validates the digest server-side. Bytes that do not hash to the declared
+          // R2 validates the digest server-side. Bytes that do not hash to the declared
           // value are rejected by the store itself, so an unverified body never becomes an object.
           sha256: declaredSha256,
         }),

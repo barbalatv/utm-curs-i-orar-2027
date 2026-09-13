@@ -2,7 +2,7 @@
  * Local run state.
  *
  * None of this is required for correctness — the broker refuses anything unsafe regardless of
- * what the laptop believes, and freshness is decided against the snapshot `current.json` names,
+ * what the publisher records, and freshness is decided against the snapshot `current.json` names,
  * never against this directory. State exists so an interrupted run can resume the *same*
  * publication instead of opening a second one, and so a genuinely unchanged upstream can be a
  * cheap no-op instead of three broker reads.

@@ -3,7 +3,7 @@
 [Project overview](../README.md) · [Architecture](architecture.md) · [Application debugging](debugging.md)
 
 MD Publisher supplies official FCIM Page API and PDF bytes to the Cloudflare Broker.
-It runs on a machine with working access to FCIM, currently a Windows laptop in Moldova.
+It runs on an operator-managed publisher host with working access to FCIM.
 It uploads candidate material; the Render application selects, parses, validates, and
 accepts each course's timetable. The publisher is part of the recommended broker
 topology, not a requirement for the application's direct FCIM mode.
@@ -24,7 +24,7 @@ The compiled publisher uses Node built-ins at runtime. Keep the checkout at a st
 path because the scheduled task records the executable's absolute path.
 
 Configure the broker with an `MD_PUBLISHER_TOKEN` secret of at least 32 characters.
-Configure the laptop with the **same publisher token**, under the Windows account that
+Configure the publisher host with the **same publisher token**, under the Windows account that
 will run the task. Use a distinct value for the application's `SCHEDULE_BROKER_SECRET`.
 
 | Credential | Where configured | Authority |
@@ -133,7 +133,7 @@ race, not that this candidate was accepted by Render.
 ## Freshness, resume state, and uploads
 
 Fresh attempts compare FCIM against what the broker currently serves. The authoritative
-baseline is the snapshot named by `current.json`; the laptop's last-run record is only
+baseline is the snapshot named by `current.json`; the publisher's last-run record is only
 a cache of that snapshot. An absent baseline or missing manifest digest means the client
 cannot prove the source unchanged and needs a publication.
 
@@ -245,7 +245,7 @@ application's public timetable API:
 | `GET /publication-status` | Read operational state |
 
 The old `POST /publish` endpoint is absent. Cron only schedules reconciliation and
-retention; it does not download missing PDFs or request them from an egress Worker.
+retention; missing PDF uploads are supplied by the publisher process.
 See [candidate publication](architecture.md#candidate-publication) and
 [retention](architecture.md#retention-and-maintenance) for limits and transaction ordering.
 
@@ -257,7 +257,7 @@ See [candidate publication](architecture.md#candidate-publication) and
 | `401` from publisher routes | Confirm the publisher token matches a current/previous broker token; the accepted-state secret does not authorize these routes |
 | `503 publisher_credentials_misconfigured` | Broker current token is missing/short, or a publisher credential equals `SCHEDULE_BROKER_SECRET` |
 | FCIM `403`, timeout, or refused redirect | Check FCIM access from the publisher machine; inspect the failed heartbeat; previous broker state is retained |
-| Missing/stale heartbeat | Check laptop power/network, task history, account logon model, and broker connectivity |
+| Missing/stale heartbeat | Check publisher host power/network, task history, account logon model, and broker connectivity |
 | `409 stale_page` / `400 future_page` | Inspect uploaded page `modified_gmt` and broker baseline/time; equal timestamps are allowed, but no force bypass exists |
 | `409 operation_payload_mismatch` / `410 operation_expired` | Client discards the attempt, creates a new operation, and retries once |
 | `409 operation_state_corrupt` | Client stops; inspect broker operation/descriptor/page consistency instead of repeatedly retrying |

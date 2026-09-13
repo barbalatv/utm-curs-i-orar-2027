@@ -1,8 +1,8 @@
 /**
- * Gate F: MD Publisher ingestion.
+ * MD Publisher ingestion.
  *
  * The properties worth pinning down are the ones that hold when the publisher is wrong, slow,
- * interrupted, duplicated or hostile. The laptop is transport-only: it can hand the broker bytes
+ * interrupted, duplicated or hostile. The publisher host is transport-only: it can hand the broker bytes
  * and an attempt id, and nothing it sends may become an R2 key, a filename, a source URL, a
  * snapshot id, a trusted HTTP validator or an acceptance decision.
  */
@@ -34,7 +34,7 @@ import { createHarness, TEST_PUBLISHER_TOKEN, type WorkerHarness } from "./helpe
 
 const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
 
-/** Any FCIM request from inside a test is a bug: after Gate F the broker never makes one. */
+/** Any FCIM request from inside a test is a bug: the broker never makes one. */
 let fcimCalls: string[] = [];
 const originalFetch = globalThis.fetch;
 
@@ -43,7 +43,7 @@ beforeEach(() => {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     fcimCalls.push(url);
-    throw new Error(`unexpected outbound fetch in a Gate F test: ${url}`);
+    throw new Error(`unexpected outbound fetch in a broker publication test: ${url}`);
   }) as typeof fetch;
 });
 
@@ -79,7 +79,7 @@ function snapshotIdAt(instant: number, suffix = "abcdef01"): string {
  * Auth and the trust boundary between the two credentials
  * ------------------------------------------------------------------ */
 
-describe("Gate F: publisher authorization boundary", () => {
+describe("publisher authorization boundary", () => {
   it("refuses a publisher route with no credential", async () => {
     const h = harness();
     const response = await openPublication(h, pagePayload(), { token: null });
@@ -158,7 +158,7 @@ describe("Gate F: publisher authorization boundary", () => {
  * The broker derives everything
  * ------------------------------------------------------------------ */
 
-describe("Gate F: the broker owns the plan", () => {
+describe("the broker owns the plan", () => {
   it("derives the snapshot id, file ids, filenames, URLs and R2 keys itself", async () => {
     const h = harness();
     const plan = await planOf(await openPublication(h, pagePayload()));
@@ -254,10 +254,10 @@ describe("Gate F: the broker owns the plan", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * DF-01 / DF-06: operation identity
+ * operation identity
  * ------------------------------------------------------------------ */
 
-describe("Gate F: operation identity", () => {
+describe("operation identity", () => {
   it("rejects an operation id that is not a UUIDv4", async () => {
     const h = harness();
     for (const id of ["", "not-a-uuid", "00000000-0000-0000-0000-000000000000", crypto.randomUUID().toUpperCase()]) {
@@ -373,10 +373,10 @@ describe("Gate F: operation identity", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * The regression Gate F exists for
+ * Detecting PDF changes when the Page API is unchanged
  * ------------------------------------------------------------------ */
 
-describe("Gate F: same page, changed PDF", () => {
+describe("same page, changed PDF", () => {
   it("publishes a replaced PDF under an unchanged page and URL set, with no force of any kind", async () => {
     const h = harness();
     const page = pagePayload({ modifiedGmt: "2026-09-08T12:57:59" });
@@ -434,10 +434,10 @@ describe("Gate F: same page, changed PDF", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * DF-03: temporal guards
+ * temporal guards
  * ------------------------------------------------------------------ */
 
-describe("Gate F: temporal guards", () => {
+describe("temporal guards", () => {
   const HOUR = 60 * 60 * 1000;
   const now = Date.parse("2026-09-10T12:00:00Z");
   const skew = 26 * HOUR;
@@ -524,10 +524,10 @@ describe("Gate F: temporal guards", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * DF-05 and the rest of upload validation
+ * Content digest and upload validation
  * ------------------------------------------------------------------ */
 
-describe("Gate F: upload integrity", () => {
+describe("upload integrity", () => {
   async function openOne(h: WorkerHarness) {
     return planOf(await openPublication(h, pagePayload({ filenames: ["anul_i_semestrul_i-19.pdf"] })));
   }
@@ -685,7 +685,7 @@ describe("Gate F: upload integrity", () => {
  * Transactions
  * ------------------------------------------------------------------ */
 
-describe("Gate F: transaction safety", () => {
+describe("transaction safety", () => {
   it("leaves an opened-but-abandoned publication entirely out of current.json", async () => {
     const h = harness();
     const plan = await planOf(await openPublication(h, pagePayload()));
@@ -770,10 +770,10 @@ describe("Gate F: transaction safety", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * DF-02: nothing publisher-controlled becomes a trusted validator
+ * nothing publisher-controlled becomes a trusted validator
  * ------------------------------------------------------------------ */
 
-describe("Gate F: publisher-observed validators stay untrusted", () => {
+describe("publisher-observed validators stay untrusted", () => {
   it("publishes a manifest whose trusted validators are null and whose observations are informational", async () => {
     const h = harness();
     const result = await publishThroughApi(h, { observedEtag: '"render-current-etag"' });
@@ -813,7 +813,7 @@ describe("Gate F: publisher-observed validators stay untrusted", () => {
  * Queue and cron narrowing
  * ------------------------------------------------------------------ */
 
-describe("Gate F: no background path reaches FCIM", () => {
+describe("no background path reaches FCIM", () => {
   it("removes the publish trigger route entirely", async () => {
     const h = harness();
     for (const [method, path] of [["POST", "/publish"], ["POST", "/publish?force=1"], ["GET", "/publish"]] as const) {
@@ -851,7 +851,18 @@ describe("Gate F: no background path reaches FCIM", () => {
     ).toBe(false);
   });
 
-  it("acks a retired job without running anything or touching the network", async () => {
+  it.each([
+    { schema_version: 1, kind: "discover", force: true },
+    {
+      schema_version: 1,
+      kind: "ingest_pdf",
+      snapshot_id: "2026-09-10T10-00-00-000Z-abcdef01",
+      file_id: "f0",
+      filename: "anul_i_semestrul_i-19.pdf",
+      source_url: `${UPLOAD_BASE}/anul_i_semestrul_i-19.pdf`,
+      r2_key: "snapshots/2026-09-10T10-00-00-000Z-abcdef01/pdfs/anul_i_semestrul_i-19.pdf",
+    },
+  ])("acks a legacy $kind job without running anything or touching the network", async (job) => {
     const h = harness();
     let acked = false;
     let retried = false;
@@ -863,7 +874,7 @@ describe("Gate F: no background path reaches FCIM", () => {
             id: "legacy-1",
             timestamp: new Date(),
             attempts: 1,
-            body: { schema_version: 1, kind: "discover", force: true } as never,
+            body: job as never,
             ack: () => { acked = true; },
             retry: () => { retried = true; },
           },
@@ -917,7 +928,7 @@ describe("Gate F: no background path reaches FCIM", () => {
  * Observability
  * ------------------------------------------------------------------ */
 
-describe("Gate F: heartbeat and status", () => {
+describe("heartbeat and status", () => {
   it("stamps its own received_at and keeps the client clock informational", async () => {
     const h = harness();
     const response = await putHeartbeat(h, {
@@ -1033,7 +1044,7 @@ describe("Gate F: heartbeat and status", () => {
  * Operation-record retention
  * ------------------------------------------------------------------ */
 
-describe("Gate F: operations/ retention", () => {
+describe("operations/ retention", () => {
   const OPERATION_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
   function seedOperation(h: WorkerHarness, operationId: string, snapshotId: string): void {

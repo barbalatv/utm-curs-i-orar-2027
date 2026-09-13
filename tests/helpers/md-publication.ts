@@ -1,5 +1,5 @@
 /**
- * Drive the MD Publisher ingestion API the way the real laptop does: over the Worker's own HTTP
+ * Drive the MD Publisher ingestion API the way the real publisher host does: over the Worker's own HTTP
  * routes, with a bearer credential, one PDF body at a time, and a declared SHA-256 for every
  * upload. Nothing here reaches into the broker's internals, so a test that publishes through this
  * helper is exercising the same boundary a compromised or confused publisher would have to cross.

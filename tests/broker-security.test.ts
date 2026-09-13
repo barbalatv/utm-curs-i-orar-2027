@@ -1,8 +1,7 @@
 /**
- * Audit regression suite for the broker's input boundaries:
- * NR-C, now Gate F (the retired /publish trigger and exact publisher routing), NR-D (strict
- * current.json parsing), E-06 (actual streamed byte limit), E-08 (Page API redirect refusal)
- * and the explicit supported-course contract.
+ * Regression suite for the broker's input boundaries: exact publisher routing, rejection of
+ * the legacy /publish trigger, strict current.json parsing, streamed byte limits, canonical
+ * Page API endpoint policy, supported-course contracts and isolation from FCIM acquisition.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,11 +9,13 @@ import { handlePutAccepted, handlePutAcceptedPayload, MAX_PAYLOAD_BYTES } from "
 import { parseSupportedCourseYear, SUPPORTED_COURSE_YEARS } from "../worker/src/courses";
 import worker from "../worker/src/index";
 import { validateJob, validatePendingFile } from "../worker/src/jobs";
-import { fetchPageApi, PageApiError, resolvePageApiUrl } from "../worker/src/page-api";
+import { resolvePageApiUrl } from "../worker/src/page-api";
 import { buildCurrentPointer, parseCurrentPointer } from "../worker/src/pointer";
 import { putLimitedStream } from "../worker/src/stream-limit";
 import type { AcceptedPointer } from "../worker/src/types";
-import { createHarness, MockR2Bucket, TEST_PUBLISHER_TOKEN } from "./helpers/worker-doubles";
+import { createHarness, drainQueue, MockR2Bucket, TEST_PUBLISHER_TOKEN } from "./helpers/worker-doubles";
+
+import { publishThroughApi } from "./helpers/md-publication";
 
 const SNAPSHOT_ID = "2026-09-08T02-08-48-000Z-7a3b4c19";
 const PDF_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-18.pdf";
@@ -37,10 +38,10 @@ function stubFetch(impl: (url: string, init?: RequestInit) => Response | Promise
 }
 
 /* ------------------------------------------------------------------ *
- * NR-C: /publish is matched exactly
+ * Legacy /publish rejection and exact publisher routing
  * ------------------------------------------------------------------ */
 
-describe("NR-C / Gate F: the retired /publish trigger and exact publisher routing", () => {
+describe("legacy /publish rejection and exact publisher routing", () => {
   const ACCEPTED_AUTH = { Authorization: "Bearer test-secret" };
   const PUBLISHER_AUTH = { Authorization: `Bearer ${TEST_PUBLISHER_TOKEN}` };
 
@@ -53,8 +54,8 @@ describe("NR-C / Gate F: the retired /publish trigger and exact publisher routin
     return { res, h, upstream };
   }
 
-  // Gate F removed the trigger entirely: there is no authenticated way to ask the broker to go
-  // and fetch anything, with or without a force query, under any spelling of the old path.
+  // The legacy /publish trigger is not a route: no credential or force query can make the broker
+  // fetch source material under any spelling of that path.
   const retired = [
     "/publish",
     "/publish?force=1",
@@ -113,10 +114,10 @@ describe("NR-C / Gate F: the retired /publish trigger and exact publisher routin
 });
 
 /* ------------------------------------------------------------------ *
- * NR-D: current.json is parsed, not pattern-matched
+ * current.json is parsed, not pattern-matched
  * ------------------------------------------------------------------ */
 
-describe("NR-D: strict current.json parsing", () => {
+describe("strict current.json pointer validation", () => {
   const valid = buildCurrentPointer({
     snapshotId: SNAPSHOT_ID,
     publishedAt: "2026-09-08T02:08:50.000Z",
@@ -260,10 +261,10 @@ describe("NR-D: strict current.json parsing", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * E-06: the enforced limit is the counted one
+ * the enforced limit is the counted one
  * ------------------------------------------------------------------ */
 
-describe("E-06: accepted payload byte limit is enforced on the stream", () => {
+describe("accepted payload byte limit is enforced on the stream", () => {
   const acceptedId = "a4c610d24dd53bbf-p1_3_0-1111111111111111";
 
   function chunkedBody(totalBytes: number): ReadableStream<Uint8Array> {
@@ -488,10 +489,10 @@ describe("accepted pointer validation", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * E-08: the Page API must answer directly
+ * Canonical Page API endpoint policy
  * ------------------------------------------------------------------ */
 
-describe("E-08: Page API redirect safety", () => {
+describe("canonical Page API endpoint policy", () => {
   it("only accepts the exact approved endpoint", () => {
     expect(resolvePageApiUrl(undefined)).toBe(PAGE_API_URL);
     expect(resolvePageApiUrl(PAGE_API_URL)).toBe(PAGE_API_URL);
@@ -502,38 +503,6 @@ describe("E-08: Page API redirect safety", () => {
       /Invalid Page API URL/,
     );
   });
-
-  it("requests with redirect: manual so nothing is followed implicitly", async () => {
-    const spy = stubFetch(
-      () => new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }),
-    );
-    await fetchPageApi(createHarness().env, PAGE_API_URL);
-    const init = spy.mock.calls[0][1] as RequestInit;
-    expect(init.redirect).toBe("manual");
-  });
-
-  const redirects: { name: string; location: string }[] = [
-    { name: "a different host", location: "https://evil.example/wp-json/wp/v2/pages?slug=orar&context=view" },
-    { name: "a different path", location: "https://fcim.utm.md/wp-json/wp/v2/pages/9999" },
-    { name: "an unexpected query", location: "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=edit" },
-    { name: "plain HTTP", location: "http://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view" },
-    { name: "the same URL", location: PAGE_API_URL },
-  ];
-
-  for (const { name, location } of redirects) {
-    it(`refuses a redirect to ${name}`, async () => {
-      stubFetch(() => new Response(null, { status: 302, headers: { Location: location } }));
-      await expect(fetchPageApi(createHarness().env, PAGE_API_URL)).rejects.toThrow(PageApiError);
-      await expect(fetchPageApi(createHarness().env, PAGE_API_URL)).rejects.toThrow(/redirect/i);
-    });
-  }
-
-  for (const status of [301, 303, 307, 308]) {
-    it(`refuses an HTTP ${status} redirect`, async () => {
-      stubFetch(() => new Response(null, { status, headers: { Location: "https://evil.example/" } }));
-      await expect(fetchPageApi(createHarness().env, PAGE_API_URL)).rejects.toThrow(/redirect/i);
-    });
-  }
 });
 
 /* ------------------------------------------------------------------ *
@@ -594,4 +563,48 @@ describe("publication job contract", () => {
       expect(validateJob(testCase.job).ok).toBe(false);
     });
   }
+});
+
+describe("no broker entry point reaches FCIM", () => {
+  it("completes a whole publication without one upstream request", async () => {
+    const direct = stubFetch(() => {
+      throw new Error("the broker attempted a direct FCIM fetch");
+    });
+    const h = createHarness({ FCIM_PAGE_API_URL: PAGE_API_URL });
+
+    const result = await publishThroughApi(h);
+
+    expect(result.completeBody.status).toBe("published");
+    expect(direct).not.toHaveBeenCalled();
+  });
+
+  it("performs no upstream request from cron or from the queue consumer", async () => {
+    const direct = stubFetch(() => {
+      throw new Error("a background invocation attempted a direct FCIM fetch");
+    });
+    const h = createHarness({ FCIM_PAGE_API_URL: PAGE_API_URL });
+
+    await worker.scheduled({ cron: "*/20 * * * *", type: "scheduled", scheduledTime: Date.now() }, h.env, h.ctx);
+    expect(h.queue.sent).toEqual([{ schema_version: 1, kind: "reconcile" }]);
+
+    const drain = await drainQueue(h, worker.queue);
+    expect(drain.retried).toBe(0);
+    expect(drain.deadLettered).toBe(0);
+    expect(direct).not.toHaveBeenCalled();
+  });
+
+  it("acks a surviving legacy discover job without executing it", async () => {
+    const direct = stubFetch(() => {
+      throw new Error("a legacy acquisition job reached the network");
+    });
+    const h = createHarness({ FCIM_PAGE_API_URL: PAGE_API_URL });
+    await h.queue.send({ schema_version: 1, kind: "discover", force: false } as never);
+
+    const result = await drainQueue(h, worker.queue, { maxDeliveries: 4 });
+
+    expect(result.acked).toBe(1);
+    expect(result.retried).toBe(0);
+    expect(direct).not.toHaveBeenCalled();
+    expect(h.bucket.has("current.json")).toBe(false);
+  });
 });

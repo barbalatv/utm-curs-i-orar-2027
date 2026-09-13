@@ -10,7 +10,7 @@
  *   hop must satisfy it again afterwards, so a redirect can only move between two URLs that would
  *   have been accepted as the original target.
  *
- * Between them, those two rules are what stop the laptop from being usable as an SSRF helper by
+ * Between them, those two rules are what stop the publisher process from being usable as an SSRF helper by
  * anything that can influence a URL — including the broker's own plan.
  */
 

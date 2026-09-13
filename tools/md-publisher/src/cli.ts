@@ -2,7 +2,7 @@
  * MD Publisher command line.
  *
  * There is no `--force`. The normal scheduled command is `publish`, and a run that finds nothing
- * to do is a success, not something to override. Forcing publication would let a laptop create
+ * to do is a success, not something to override. Forcing publication would let the publisher create
  * candidate snapshots for its own reasons, which is exactly the authority it must not have.
  */
 

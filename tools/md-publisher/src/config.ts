@@ -2,9 +2,8 @@
  * Publisher configuration.
  *
  * Two things are deliberately *not* configurable: the FCIM Page API endpoint and the PDF URL
- * policy. Both come from the shared canonical policy module, because a laptop that can be pointed
- * at an arbitrary "Page API" is a laptop that can be turned into an SSRF helper by whoever edits
- * its environment.
+ * policy. Both come from the shared canonical policy module: allowing an arbitrary "Page API"
+ * would let whoever edits the environment turn the publisher process into an SSRF helper.
  */
 
 import os from "node:os";

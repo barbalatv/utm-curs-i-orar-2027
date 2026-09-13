@@ -15,7 +15,7 @@
  * - GET  /accepted-payloads/course-:year/:id     -> immutable accepted payload
  * - PUT  /accepted-payloads/course-:year/:id     -> authenticated streamed payload write
  *
- * MD Publisher routes (MD_PUBLISHER_TOKEN only — the Moldova laptop):
+ * MD Publisher routes (MD_PUBLISHER_TOKEN only — the publisher host):
  * - POST /publications                           -> open or resume a publication
  * - GET  /publications/:snapshot_id              -> broker-generated plan and upload state
  * - PUT  /publications/:snapshot_id/files/:id    -> one checksum-validated PDF body
@@ -28,7 +28,7 @@
  * Cron trigger  -> enqueue reconciliation only
  * Queue consumer -> finalize or reconcile, one per invocation
  *
- * Nothing reachable from `scheduled()` or `queue()` performs an FCIM request. Candidate bytes
+ * No route, cron or queue handler performs an FCIM request. Candidate bytes
  * enter this Worker only through an authenticated MD Publisher upload.
  */
 
