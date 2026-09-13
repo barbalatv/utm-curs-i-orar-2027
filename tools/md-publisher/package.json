@@ -2,7 +2,7 @@
   "name": "fcim-md-publisher",
   "version": "1.0.0",
   "private": true,
-  "description": "Transport-only FCIM timetable publisher for the Moldova laptop",
+  "description": "Transport-only publisher for official FCIM timetable source material",
   "bin": {
     "md-publisher": "./dist/tools/md-publisher/src/index.js"
   },

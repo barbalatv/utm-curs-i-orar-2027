@@ -1,7 +1,7 @@
 /**
- * Gate F: the MD Publisher.
+ * Publisher source acquisition, upload transport and CLI behavior.
  *
- * The laptop is transport-only, so the behaviours that matter are the ones that decide *whether*
+ * The publisher process is transport-only, so the behaviours that matter are the ones that decide *whether*
  * it acts and how it recovers when it cannot finish: conservative change detection, an attempt
  * identity it is willing to throw away, and a hard refusal to fetch anything the FCIM policy does
  * not allow — including a URL handed to it by the broker.
@@ -16,7 +16,10 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CANONICAL_PAGE_API_URL } from "../worker-shared/fcim-policy";
+import {
+  CANONICAL_PAGE_API_URL,
+  resolveOfficialTimetablePdfRedirect,
+} from "../worker-shared/fcim-policy";
 import { runCheck, runPublish } from "../tools/md-publisher/src/publish";
 import { runDoctor, readTaskRegistration } from "../tools/md-publisher/src/doctor";
 import { ConfigError, loadConfig, normalizeBrokerUrl } from "../tools/md-publisher/src/config";
@@ -55,7 +58,7 @@ function defaultScript(overrides: Partial<FcimScript> = {}): FcimScript {
   };
 }
 
-describe("Gate F: MD Publisher", () => {
+describe("publisher source acquisition, upload transport and CLI behavior", () => {
   let stateDir: string;
   let broker: WorkerHarness;
   let config: PublisherConfig;
@@ -151,7 +154,7 @@ describe("Gate F: MD Publisher", () => {
     expect(firstResult.outcome).toBe("published");
 
     // The page still answers 304 with the same validator; one PDF answers 200 to its conditional
-    // request, which is exactly the change Gate F exists to catch.
+    // request; change detection must catch this replacement.
     const replaced = new TextEncoder().encode("%PDF-1.4 replaced in place");
     const second = createTestTransport(broker, {
       // Conditional: 304. Unconditional (the re-fetch needed to open a publication): the body.
@@ -226,7 +229,7 @@ describe("Gate F: MD Publisher", () => {
     expect(result.exitCode).toBe(1);
     expect(result.error).toMatch(/HTTP 403/);
 
-    // GF-A04: a laptop that cannot reach FCIM must not look like a laptop with nothing to do.
+    // A failed FCIM acquisition must remain distinguishable from an unchanged source.
     // It opened no publication, but the failed run is visible to whoever reads the broker.
     expect(result.heartbeat).toBe("delivered");
     expect(log.broker.filter((call) => call.method !== "GET")).toEqual([
@@ -252,19 +255,32 @@ describe("Gate F: MD Publisher", () => {
     expect(JSON.parse(broker.bucket.text("publisher/heartbeat.json")!).status).toBe("error");
   });
 
-  it("refuses a Page API redirect instead of following it", async () => {
-    const { transport } = createTestTransport(broker, {
-      page: () => ({ status: 302, headers: { location: "https://evil.example/page" } }),
-      pdf: () => ({ status: 200, body: pdfBody() }),
-    });
+  it.each([301, 302, 303, 307, 308])(
+    "refuses a Page API redirect HTTP %d instead of following it",
+    async (status) => {
+      const location = "https://evil.example/page";
+      const { transport, log } = createTestTransport(broker, {
+        page: () => ({ status, headers: { location } }),
+        pdf: () => ({ status: 200, body: pdfBody() }),
+      });
 
-    const result = await runPublish(config, transport);
-    expect(result.outcome).toBe("error");
-    expect(result.error).toMatch(/redirect/i);
-  });
+      const result = await runPublish(config, transport);
+      expect(result.outcome).toBe("error");
+      expect(result.exitCode).toBe(1);
+      expect(result.error).toMatch(
+        new RegExp(
+          `Page API answered with redirect HTTP ${status}; the approved endpoint must answer directly`,
+        ),
+      );
+      expect(log.fcim).toEqual([
+        { url: CANONICAL_PAGE_API_URL, headers: { Accept: "application/json" } },
+      ]);
+      expect(log.fcim.map((call) => call.url)).not.toContain(location);
+    },
+  );
 
   /* ---------------------------------------------------------------- *
-   * The laptop must not become an SSRF helper
+   * The publisher host must not become an SSRF helper
    * ---------------------------------------------------------------- */
 
   it("refuses a plan URL that leaves the official FCIM policy", async () => {
@@ -288,7 +304,7 @@ describe("Gate F: MD Publisher", () => {
   });
 
   it("refuses a PDF redirect that leaves the approved origin", async () => {
-    const { transport } = createTestTransport(broker, {
+    const { transport, log } = createTestTransport(broker, {
       page: () => ok(PAGE, { "content-type": "application/json" }),
       pdf: () => ({ status: 302, headers: { location: "https://evil.example/x.pdf" } }),
     });
@@ -296,6 +312,140 @@ describe("Gate F: MD Publisher", () => {
     const result = await runPublish(config, transport);
     expect(result.outcome).toBe("error");
     expect(result.error).toMatch(/approved FCIM origin policy/);
+    expect(log.fcim.map((call) => call.url)).not.toContain("https://evil.example/x.pdf");
+  });
+
+  it("refuses a PDF redirect that downgrades from HTTPS to HTTP", async () => {
+    const downgradeUrl = PDF_A.replace("https://", "http://");
+    const { transport, log } = createTestTransport(broker, {
+      page: () => ok(PAGE, { "content-type": "application/json" }),
+      pdf: (url) =>
+        url === PDF_A
+          ? { status: 302, headers: { location: downgradeUrl } }
+          : ok(pdfBody(url), { "content-type": "application/pdf" }),
+    });
+
+    const result = await runPublish(config, transport);
+    expect(result.outcome).toBe("error");
+    expect(result.error).toMatch(/approved FCIM origin policy/);
+    expect(log.fcim.map((call) => call.url)).not.toContain(downgradeUrl);
+  });
+
+  it("refuses a PDF redirect that provides no Location header", async () => {
+    const { transport } = createTestTransport(broker, {
+      page: () => ok(PAGE, { "content-type": "application/json" }),
+      pdf: (url) =>
+        url === PDF_A
+          ? { status: 302, headers: {} }
+          : ok(pdfBody(url), { "content-type": "application/pdf" }),
+    });
+
+    const result = await runPublish(config, transport);
+    expect(result.outcome).toBe("error");
+    expect(result.error).toMatch(/PDF redirect from .* had no Location/);
+  });
+
+  it.each([
+    ["lookalike host", "https://fcim.utm.md.evil.example/wp-content/uploads/sites/24/2026/09/x.pdf"],
+    ["credentials in URL", "https://user:pass@fcim.utm.md/wp-content/uploads/sites/24/2026/09/x.pdf"],
+    ["custom port", "https://fcim.utm.md:8443/wp-content/uploads/sites/24/2026/09/x.pdf"],
+    ["query string", `${PDF_A}?download=1`],
+    ["fragment", `${PDF_A}#page=1`],
+    ["raw path traversal", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/../x.pdf"],
+    ["encoded path traversal", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/%2e%2e/x.pdf"],
+    ["unsafe filename", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/.hidden.pdf"],
+    ["non-PDF extension", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/x.txt"],
+    ["different non-upload path", "https://fcim.utm.md/wp-admin/admin-ajax.php"],
+  ])("refuses a PDF redirect to an unsafe or off-policy target (%s)", async (_label, unsafeLocation) => {
+    const { transport, log } = createTestTransport(broker, {
+      page: () => ok(PAGE, { "content-type": "application/json" }),
+      pdf: (url) =>
+        url === PDF_A
+          ? { status: 302, headers: { location: unsafeLocation } }
+          : ok(pdfBody(url), { "content-type": "application/pdf" }),
+    });
+
+    const result = await runPublish(config, transport);
+    expect(result.outcome).toBe("error");
+    expect(result.error).toMatch(/approved FCIM origin policy/);
+    expect(log.fcim.map((call) => call.url)).not.toContain(unsafeLocation);
+  });
+
+  it("enforces the maximum redirect bound on PDF redirect loops", async () => {
+    const { transport, log } = createTestTransport(broker, {
+      page: () => ok(PAGE, { "content-type": "application/json" }),
+      pdf: (url) =>
+        url === PDF_A
+          ? { status: 302, headers: { location: PDF_A } }
+          : ok(pdfBody(url), { "content-type": "application/pdf" }),
+    });
+
+    const result = await runPublish(config, transport);
+    expect(result.outcome).toBe("error");
+    expect(result.error).toMatch(/exceeded 3 redirects/);
+    const pdfCalls = log.fcim.filter((call) => call.url === PDF_A);
+    expect(pdfCalls).toHaveLength(4);
+  });
+
+  it("accepts a valid official same-policy PDF redirect", async () => {
+    const redirectedUrl = `${UPLOAD_BASE}/anul_i_semestrul_i-20.pdf`;
+    const relativeLocation = "/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-20.pdf";
+    const redirectedBody = pdfBody(redirectedUrl);
+
+    const { transport, log } = createTestTransport(broker, {
+      page: () => ok(PAGE, { "content-type": "application/json" }),
+      pdf: (url) => {
+        if (url === PDF_A) {
+          return { status: 302, headers: { location: relativeLocation } };
+        }
+        if (url === redirectedUrl) {
+          return ok(redirectedBody, { etag: '"pdf-a-20"', "content-type": "application/pdf" });
+        }
+        return ok(pdfBody(url), { "content-type": "application/pdf" });
+      },
+    });
+
+    const result = await runPublish(config, transport);
+    expect(result.outcome).toBe("published");
+    expect(result.exitCode).toBe(0);
+
+    const pdfUrls = log.fcim.map((call) => call.url);
+    expect(pdfUrls).toContain(PDF_A);
+    expect(pdfUrls).toContain(redirectedUrl);
+  });
+
+  describe("resolveOfficialTimetablePdfRedirect policy resolution", () => {
+    it.each([
+      ["foreign host", "https://evil.example/wp-content/uploads/sites/24/2026/09/x.pdf"],
+      ["http downgrade", "http://fcim.utm.md/wp-content/uploads/sites/24/2026/09/x.pdf"],
+      ["lookalike host", "https://fcim.utm.md.evil.example/wp-content/uploads/sites/24/2026/09/x.pdf"],
+      ["credentials", "https://user:pass@fcim.utm.md/wp-content/uploads/sites/24/2026/09/x.pdf"],
+      ["custom port", "https://fcim.utm.md:8443/wp-content/uploads/sites/24/2026/09/x.pdf"],
+      ["query string", `${PDF_A}?download=1`],
+      ["fragment", `${PDF_A}#page=1`],
+      ["raw path traversal", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/../x.pdf"],
+      ["encoded path traversal", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/%2e%2e/x.pdf"],
+      ["double-encoded traversal", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/%252e%252e/x.pdf"],
+      ["encoded slash", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/%2fx.pdf"],
+      ["backslash", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09\\x.pdf"],
+      ["unsafe filename with leading dot", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/.hidden.pdf"],
+      ["non-PDF extension", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i.txt"],
+      ["non-upload path", "https://fcim.utm.md/wp-json/wp/v2/pages"],
+      ["empty string", ""],
+      ["excessively long string", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/" + "a".repeat(2048) + ".pdf"],
+    ])("rejects %s: %s", (_label, location) => {
+      expect(resolveOfficialTimetablePdfRedirect(location, PDF_A)).toBeNull();
+    });
+
+    it.each([
+      ["absolute same-origin URL", "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-20.pdf"],
+      ["root-relative URL", "/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-20.pdf"],
+      ["relative filename", "anul_i_semestrul_i-20.pdf"],
+    ])("resolves valid official same-policy redirect (%s)", (_label, location) => {
+      expect(resolveOfficialTimetablePdfRedirect(location, PDF_A)).toBe(
+        "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-20.pdf",
+      );
+    });
   });
 
   /* ---------------------------------------------------------------- *
@@ -520,7 +670,7 @@ describe("Gate F: MD Publisher", () => {
   });
 
   it("leaves a resumable attempt intact through a dry run, and finishes it afterwards", async () => {
-    // GF-N01: `--dry-run` is an observation, so it may not consume pending work. A dry run that
+    // `--dry-run` is an observation, so it may not consume pending work. A dry run that
     // wiped `run/` would strand a publication the broker already has open and force the next real
     // run to mint a second identity for the same bytes.
     let failUpload = true;
@@ -653,6 +803,7 @@ describe("Gate F: MD Publisher", () => {
   it("reports a healthy deployment from doctor", async () => {
     const { transport } = createTestTransport(broker, defaultScript());
     const report = await runDoctor({
+      platform: "win32",
       env: {
         MD_PUBLISHER_BROKER_URL: FAKE_BROKER_ORIGIN,
         MD_PUBLISHER_TOKEN: TEST_PUBLISHER_TOKEN,

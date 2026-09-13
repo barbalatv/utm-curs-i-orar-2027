@@ -1,22 +1,11 @@
 /**
- * Pure FCIM transport policy shared by both Workers and their tests.
- *
- * This module deliberately has no Cloudflare runtime or fetch dependencies. The broker validates
- * targets before crossing the Service Binding, and the Stockholm backend independently applies
- * the same policy before it creates an Internet request.
+ * Canonical FCIM source URL and filename policy shared by the broker, publisher and tests.
+ * This module has no runtime or network dependencies. Both the broker and the publisher
+ * independently validate source material against the same restrictions.
  */
 
 export const CANONICAL_PAGE_API_URL =
   "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
-
-export const FCIM_EGRESS_INTERNAL_ORIGIN = "https://fcim-egress.internal";
-export const FCIM_EGRESS_PAGE_API_PATH = "/page-api";
-export const FCIM_EGRESS_PDF_PATH = "/pdf";
-export const FCIM_EGRESS_ERROR_HEADER = "X-FCIM-Egress-Error";
-export const FCIM_EGRESS_SERVICE_HEADER = "X-FCIM-Egress-Service";
-export const FCIM_EGRESS_SERVICE_VALUE = "fcim-stockholm-egress";
-export const FCIM_PLACEMENT_HEADER = "X-FCIM-Placement";
-export const FCIM_UPSTREAM_CF_RAY_HEADER = "X-FCIM-Upstream-CF-Ray";
 
 const OFFICIAL_ORIGIN = "https://fcim.utm.md";
 const SAFE_PDF_FILENAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,190}\.pdf$/i;

@@ -203,7 +203,7 @@ describe("broker contract schemas & backward compatibility", () => {
   });
 });
 
-describe("Audit E-01: Adversarial candidate selection fixtures", () => {
+describe("Adversarial candidate selection fixtures", () => {
   const baseManifest = (files: SnapshotManifest["files"]): SnapshotManifest => ({
     schema_version: 1,
     snapshot_id: "snap-adversarial-1",
@@ -413,7 +413,7 @@ describe("Audit E-01: Adversarial candidate selection fixtures", () => {
   });
 });
 
-describe("Audit E-05: Broker URL security parsing & path token validators", () => {
+describe("Broker URL security parsing & path token validators", () => {
   it("strictly validates SCHEDULE_BROKER_URL", () => {
     // Valid HTTPS URLs
     expect(parseAndValidateBrokerUrl("https://broker.fcim.internal").origin).toBe("https://broker.fcim.internal");
@@ -515,7 +515,7 @@ describe("Audit E-05: Broker URL security parsing & path token validators", () =
   });
 });
 
-describe("Audit E-03: Stream timeout & bounded reader", () => {
+describe("Stream timeout & bounded reader", () => {
   it("aborts when response stream stalls beyond timeoutMs", async () => {
     const originalFetch = globalThis.fetch;
     // Create a stream that emits initial chunk, then hangs indefinitely

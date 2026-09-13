@@ -5,13 +5,13 @@
  *
  * **The broker's current snapshot is the only freshness baseline.** Every normal run starts by
  * reading `current.json` and comparing FCIM against the snapshot it names — never against what
- * this laptop happens to remember. The local cache is consulted only while it is anchored to that
+ * the publisher's local cache records. The local cache is consulted only while it is anchored to that
  * exact snapshot, and it is rebuilt from the broker after every attempt, whatever the attempt
- * closed as. A publication that lost the pointer race therefore cannot leave the laptop believing
+ * closed as. A publication that lost the pointer race therefore cannot leave the publisher believing
  * it is up to date while the broker serves something else. See `baseline.ts`.
  *
- * **Change detection is conservative, in the Gate E sense:** a no-op is only reported when the
- * upstream can genuinely be treated as unchanged. In particular a PDF conditional request that
+ * **Change detection is conservative:** a no-op is only reported when the upstream can be
+ * treated as unchanged. In particular a PDF conditional request that
  * answers 200 triggers a publication even when the Page API bytes and the URL set did not move at
  * all — FCIM does replace a timetable in place under the same URL, and that is precisely the
  * change that must not be missed. When the upstream offers no usable validator for a PDF, the
@@ -203,7 +203,7 @@ async function uploadPlanFiles(
   log: (line: string) => void,
 ): Promise<void> {
   // One PDF at a time. Nothing is held in memory, and each temporary body is removed as soon as
-  // the broker has it, so a large catalogue cannot fill the laptop's disk mid-run.
+  // the broker has it, so a large catalogue cannot fill the publisher host's disk mid-run.
   for (const file of plan.files) {
     if (file.status === "stored") {
       // The broker already holds this file's immutable bytes and will not accept different ones,
@@ -364,8 +364,8 @@ export async function runPublish(
   /**
    * Every completed run reports itself, including the ones that failed before touching a
    * publication route: an FCIM 403, a timeout or a refused redirect has to become a
-   * broker-visible failed run, or a laptop that can no longer reach FCIM at all looks exactly
-   * like a laptop with nothing to do. A heartbeat that cannot be delivered is logged and
+   * broker-visible failed run, so an unreachable FCIM source is distinguishable from an unchanged
+   * source. A heartbeat that cannot be delivered is logged and
    * nothing more — it never rewrites the outcome of the work that already completed.
    */
   const deliver = async (result: PublishResult): Promise<PublishResult> => {

@@ -4,7 +4,7 @@
  * `get` and `json` are ordinary bounded fetches. `upload` deliberately is not: it uses the Node
  * HTTP client directly so the request carries an exact `Content-Length` while the body is piped
  * from disk. That combination is what lets the broker enforce a real byte count without the
- * laptop ever holding a 25 MB PDF in memory.
+ * publisher process ever holding a 25 MB PDF in memory.
  *
  * Everything is injected as a `Transport`, so tests drive the publisher end to end without a
  * single socket being opened.

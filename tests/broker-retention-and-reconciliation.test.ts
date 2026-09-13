@@ -54,7 +54,7 @@ function mockUpstream(filenames: string[], status = 200): void {
   }));
 }
 
-describe("GE-N01 canonical filename policy", () => {
+describe("canonical filename policy", () => {
   const names = ["a.pdf", "a.PDF", "a.Pdf", "x".repeat(191) + ".pdf", "x".repeat(191) + ".PDF",
     "a".repeat(127) + ".Pdf", "a".repeat(128) + ".PDF", "a".repeat(190) + ".pdf",
     "a".repeat(182) + "." + "b".repeat(8) + ".PDF"];
@@ -112,7 +112,7 @@ describe("GE-N01 canonical filename policy", () => {
   });
 });
 
-describe("GE-N02 incremental retention", () => {
+describe("incremental retention", () => {
   it("keeps current and two historical predecessors, removes old superseded snapshots and pending", async () => {
     const h = createHarness();
     const ids = [100, 90, 80, 70].map((age) => idAt(age));
@@ -246,7 +246,7 @@ describe("GE-N02 incremental retention", () => {
     const before = h.bucket.text("current.json");
     for (let n = 0; n < 15; n++) {
       vi.setSystemTime(Date.now() + 2 * HOUR);
-      // The laptop opens a publication and then dies before it can upload anything.
+      // The publisher host opens a publication and then dies before it can upload anything.
       expect((await openPublication(h, page)).status).toBe(201);
       await runReconcile(h.env);
       const drain = await drainQueue(h, worker.queue);
@@ -260,7 +260,7 @@ describe("GE-N02 incremental retention", () => {
   });
 });
 
-describe("GE-N03 cursor-aware reconciliation", () => {
+describe("cursor-aware reconciliation", () => {
   it("finds later-page repairable work beyond 150 old prefixes, skips newer superseded work and requeues finalize only", async () => {
     const h = createHarness();
     h.bucket.listPageSize = 60;
@@ -272,7 +272,7 @@ describe("GE-N03 cursor-aware reconciliation", () => {
     for (let n = 170; n > 0; n--) seedPending(h, idAt(12, n));
     const result = await runReconcile(h.env);
     expect(result).toMatchObject({ outcome: "requeued", requeued_finalizes: 1 });
-    // Gate F: reconciliation never asks for bytes. Missing uploads are the publisher's to resend.
+    // reconciliation never asks for bytes. Missing uploads are the publisher's to resend.
     expect(h.queue.sent).toEqual([expect.objectContaining({ kind: "finalize", snapshot_id: repairable })]);
     const scans = h.bucket.listings.filter((call) => call.limit === 100);
     expect(scans).toHaveLength(3);

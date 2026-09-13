@@ -1,20 +1,19 @@
 /**
  * Candidate-snapshot publication.
  *
- * Gate F moved acquisition out of the broker entirely. The Moldova laptop (the "MD Publisher")
- * is the only thing that talks to FCIM; it hands the broker raw Page API bytes and raw PDF bytes
- * over an authenticated transport credential, and nothing else. The broker still decides
- * everything that matters:
+ * Acquisition is performed by the external publisher host. It supplies raw Page API and PDF
+ * bytes over an authenticated transport credential. The broker owns publication planning,
+ * validation and snapshot state:
  *
  *   PUBLISHER BYTES -> OPEN (broker derives the plan) -> UPLOADS -> COMPLETE -> current.json CAS
  *
  * The publisher cannot choose a snapshot id, an R2 key, a filename, a PDF source URL, the
  * manifest, or the current pointer. It supplies bytes and an attempt identity; the broker
- * re-derives the catalogue from those bytes with the same code the old discovery stage used.
+ * re-derives the catalogue using the canonical source-document extraction policy.
  *
- * The ordering guarantees are unchanged from the queue-driven publisher and are what make a
- * half-built snapshot harmless: every child object is created with `If-None-Match: *`, the
- * manifest is written only once every expected PDF is proven present, and `current.json` is
+ * The ordering guarantees keep a half-built snapshot harmless: every child object is created
+ * with `If-None-Match: *`, the manifest is written only once every expected PDF is proven present,
+ * and `current.json` is
  * compare-and-swapped last against the ETag the publication observed when it opened. A
  * publication that never finishes simply stays out of `current.json` forever.
  *
@@ -73,7 +72,7 @@ const MAX_RECONCILED_SNAPSHOTS = 3;
 /** Leave a freshly opened publication alone; its own uploads are still in flight. */
 const PENDING_MIN_AGE_MS = 5 * 60 * 1000;
 
-/** Default DF-03 tolerance for a Page API timestamp that leads broker time. */
+/** Default tolerance for a Page API timestamp that leads broker time. */
 export const DEFAULT_MAX_PAGE_FUTURE_SKEW_HOURS = 26;
 
 /** How many publications may be open at once before the broker refuses to open another. */
@@ -150,7 +149,7 @@ export function planSnapshotFiles(snapshotId: string, pdfUrls: readonly string[]
 }
 
 /* ------------------------------------------------------------------ *
- * DF-03: temporal guards
+ * Temporal guards
  * ------------------------------------------------------------------ */
 
 /** Parse a WordPress naive-GMT stamp, rejecting impossible calendar dates. */
@@ -301,7 +300,7 @@ async function readOperation(env: Env, operationId: string): Promise<OperationRe
 }
 
 /**
- * Resume, refuse or expire an attempt whose operation record already exists (DF-01 / DF-06).
+ * Resume, refuse or expire an attempt whose operation record already exists.
  *
  * A mismatched payload hash never mutates anything and never reveals which snapshot the original
  * attempt created: a client that is confused about its own identity must not be handed a handle
@@ -562,7 +561,7 @@ export async function openPublication(
       page_id: pageId,
       page_modified_gmt: pageModifiedGmt,
       retrieved_at: createdAt,
-      // DF-02: a publisher-observed HTTP validator never becomes a trusted one.
+      // A publisher-observed HTTP validator never becomes a trusted one.
       etag: null,
       last_modified: null,
     },
@@ -687,7 +686,7 @@ export async function runFinalize(env: Env, snapshotId: string): Promise<Finaliz
       r2_key: file.r2_key,
       content_type: parsedMarker.content_type,
       size: object.size,
-      // DF-02: for publisher-authored snapshots the trusted validators are unconditionally null,
+      // For publisher-authored snapshots the trusted validators are unconditionally null,
       // whatever a marker claims. Render's ETag fast-path must stay unreachable for these files.
       upstream_etag: publisherAuthored ? null : parsedMarker.upstream_etag,
       upstream_last_modified: publisherAuthored ? null : parsedMarker.upstream_last_modified,
@@ -773,8 +772,8 @@ export async function runFinalize(env: Env, snapshotId: string): Promise<Finaliz
 /**
  * Re-drive recent publications whose finalize never ran, and run bounded retention.
  *
- * Gate F narrowed this stage hard: it never fetches FCIM and never asks for a PDF body. A
- * publication that is still missing uploads is left alone — only the publisher can supply those
+ * Reconciliation never fetches FCIM and never asks for a PDF body. A publication that is still
+ * missing uploads is left alone — only the publisher can supply those
  * bytes, and it is the publisher's own retry that will do so. Re-driving finalize is safe because
  * finalize reads storage and nothing else.
  */

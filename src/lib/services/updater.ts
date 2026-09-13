@@ -275,7 +275,7 @@ async function runBrokerAutomaticCheck(
             });
             current = durableAccepted.schedule;
           } catch (resyncErr) {
-            // HARD GATE (E-04): Stop that course's update run immediately.
+            // Durable-to-local resync failure stops this course's update before candidate evaluation.
             // Do NOT evaluate new candidates, do NOT validate against old local state.
             const errorMsg = `Durable to local resync failed: ${errorMessage(resyncErr)}`;
             log.error(errorMsg, { courseYear });

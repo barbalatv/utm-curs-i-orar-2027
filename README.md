@@ -74,7 +74,7 @@ combines these tiers with linting and builds.
 | Application types and unit/parser tests | `npm run typecheck`, `npm test` (Vitest with local fixtures and mocked upstream requests) |
 | PostgreSQL 16 integration | Set `DATABASE_URL` to a disposable test database; run `npm run db:migrate`, then `npm run test:db` |
 | Browser E2E | `npm run build`, `npx playwright install chromium`, then `npm run test:e2e` (Playwright) |
-| Workers | `npm run typecheck:worker`, `npm run typecheck:worker-egress`, `npm run check:worker`, `npm run check:worker-egress` (Wrangler dry runs; no deployment) |
+| Worker | `npm run typecheck:worker`, `npm run check:worker` (Wrangler dry runs; no deployment) |
 | MD Publisher | `npm run typecheck:publisher`, `npm run build:publisher` |
 
 See [testing and parser diagnostics](docs/debugging.md#testing-and-parser-diagnostics)
@@ -89,7 +89,7 @@ application remains the semantic authority that selects, parses, and validates i
 
 ```mermaid
 flowchart LR
-    FCIM[Official FCIM sources] --> Publisher[MD Publisher]
+    FCIM[Official FCIM sources] --> Publisher[Publisher host / MD Publisher]
     Publisher --> Broker[Cloudflare Broker / R2]
     Broker --> App[Render application]
     App -->|Accepted state| Broker
@@ -111,6 +111,10 @@ The effective cold-start recovery order is:
 
 The scheduler and cache coordination run within one process; deploy one application replica.
 See [architecture](docs/architecture.md) for update ordering, recovery, and maintenance.
+The current production publisher runs on a dedicated Debian host under a user-level
+systemd timer; Windows Task Scheduler remains an optional deployment. See
+[publisher operations](docs/publisher.md#current-production-deployment-debian-user-systemd)
+for installation, diagnostics, and the manual update/rebuild procedure.
 
 ## API
 

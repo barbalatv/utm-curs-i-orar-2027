@@ -1,13 +1,13 @@
 /**
- * Gate F: the freshness baseline is the broker's, not the laptop's.
+ * The broker's current snapshot is the publisher's freshness authority.
  *
  * These are the regressions for the two ways a transport-only publisher can quietly stop
  * publishing while believing it is up to date:
  *
- *   GF-T01  a publication that loses the `current.json` CAS is recorded as if it had won, so the
- *           laptop sees FCIM matching its own memory and never republishes;
- *   GF-T02  a resumed publication re-downloads a file the broker already stores, and records the
- *           *newer* bytes it just saw as the state of the *older* snapshot it just closed.
+ *   Lost pointer race: a publication that loses the `current.json` CAS is recorded as if it had won, so the
+ *     publisher sees FCIM matching its own memory and never republishes;
+ *   Resume after source changes: a resumed publication re-downloads a file the broker already stores, and records the
+ *     *newer* bytes it just saw as the state of the *older* snapshot it just closed.
  *
  * Both end the same way — `unchanged` forever while the broker serves something else — and both
  * are prevented by the same rule: freshness is only ever compared against, and only ever recorded
@@ -76,7 +76,7 @@ function currentSnapshotId(harness: WorkerHarness): string | null {
   return harness.bucket.json<{ snapshot_id: string }>("current.json")?.snapshot_id ?? null;
 }
 
-describe("Gate F: the broker's current snapshot is the only freshness baseline", () => {
+describe("the broker's current snapshot is the only freshness baseline", () => {
   let stateDir: string;
   let broker: WorkerHarness;
   let config: PublisherConfig;
@@ -100,10 +100,10 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
   });
 
   /* ---------------------------------------------------------------- *
-   * GF-T01: the superseded-baseline wedge
+   * the superseded-baseline wedge
    * ---------------------------------------------------------------- */
 
-  it("GF-T01: converges after a superseded publication instead of wedging on unchanged", async () => {
+  it("converges after a superseded publication instead of wedging on unchanged", async () => {
     const bodyB = pdfBody("revision-B");
     const bodyC = pdfBody("revision-C");
     const fcim = fcimServing(ONE_PDF_PAGE, { [PDF_A]: { body: bodyB, etag: '"b-etag"' } });
@@ -140,7 +140,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
     const superseded = await runPublish(config, wedged.transport);
     expect(superseded.outcome).toBe("superseded");
     expect(superseded.exitCode).toBe(0);
-    // A losing attempt is a normal outcome, and it still reports itself (GF-A04).
+    // A losing attempt is a normal outcome, and it still reports itself.
     expect(superseded.heartbeat).toBe("delivered");
     const beat = JSON.parse(broker.bucket.text("publisher/heartbeat.json")!) as Record<string, unknown>;
     expect(beat.outcome).toBe("superseded");
@@ -180,7 +180,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
     expect(currentSnapshotId(broker)).toBe(converged.snapshot_id);
   });
 
-  it("GF-T01: never reports unchanged from a local baseline the broker does not represent", async () => {
+  it("never reports unchanged from a local baseline the broker does not represent", async () => {
     const bodyB = pdfBody("revision-B");
     const fcim = fcimServing(ONE_PDF_PAGE, { [PDF_A]: { body: bodyB, etag: '"b-etag"' } });
 
@@ -188,7 +188,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
     await publishThroughApi(broker, { page: ONE_PDF_PAGE, body: pdfBody("revision-A") });
     const snapshotA = currentSnapshotId(broker)!;
 
-    // A laptop that believes it already published revision B: the exact state the superseded
+    // A publisher host that believes it already published revision B: the exact state the superseded
     // wedge used to leave behind, written here directly so the claim is unambiguous.
     const state = new StateStore(stateDir);
     const bHash = await sha256Hex(bodyB);
@@ -224,7 +224,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
     const published = await runPublish(config, first.transport);
     expect(published.outcome).toBe("published");
 
-    // A fresh clone, or the same laptop after someone cleared %LOCALAPPDATA%.
+    // A fresh clone, or the same publisher host after someone cleared %LOCALAPPDATA%.
     fs.rmSync(stateDir, { recursive: true, force: true });
 
     const second = createTestTransport(broker, fcim);
@@ -282,8 +282,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
       observedEtag: '"a-etag"',
     });
 
-    // A snapshot published before content digests were recorded — what a pre-Gate-F pointer looks
-    // like on the morning of the cutover.
+    // A legacy snapshot without recorded content digests.
     const manifestKey = `snapshots/${seeded.snapshotId}/manifest.json`;
     const manifest = broker.bucket.json<Record<string, unknown>>(manifestKey)!;
     manifest.files = (manifest.files as Record<string, unknown>[]).map((file) => ({
@@ -305,10 +304,10 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
   });
 
   /* ---------------------------------------------------------------- *
-   * GF-T02: resume across an upstream change
+   * resume across an upstream change
    * ---------------------------------------------------------------- */
 
-  it("GF-T02: a resumed publication never records bytes the broker did not store", async () => {
+  it("a resumed publication never records bytes the broker did not store", async () => {
     const bodyX = pdfBody("revision-X");
     const bodyY = pdfBody("revision-Y");
     const otherBody = pdfBody("other");
@@ -375,7 +374,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
     expect((await runPublish(config, settled.transport)).outcome).toBe("unchanged");
   });
 
-  it("GF-T02: an interrupted run leaves the freshness baseline exactly where it was", async () => {
+  it("an interrupted run leaves the freshness baseline exactly where it was", async () => {
     const bodyX = pdfBody("revision-X");
     const otherBody = pdfBody("other");
     const serving = (a: Uint8Array, etag: string) =>
@@ -407,10 +406,10 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
   });
 
   /* ---------------------------------------------------------------- *
-   * GF-A04: every completed run is visible to the broker
+   * every completed run is visible to the broker
    * ---------------------------------------------------------------- */
 
-  it("GF-A04: refreshes the heartbeat on an unchanged run", async () => {
+  it("refreshes the heartbeat on an unchanged run", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const fcim = fcimServing(ONE_PDF_PAGE, { [PDF_A]: { body: pdfBody("only"), etag: '"a-etag"' } });
@@ -430,7 +429,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
       expect(unchanged.heartbeat).toBe("delivered");
 
       // A quiet run is still a run: `received_at` moves, so a stale heartbeat means a stalled
-      // laptop rather than a calm upstream.
+      // publisher host rather than a calm upstream.
       const afterUnchanged = JSON.parse(broker.bucket.text("publisher/heartbeat.json")!) as {
         received_at: string;
         outcome: string;
@@ -446,7 +445,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
     }
   });
 
-  it("GF-A04: reports a refused redirect and a broker outage as failed runs, not as quiet ones", async () => {
+  it("reports a refused redirect and a broker outage as failed runs, not as quiet ones", async () => {
     const redirecting = createTestTransport(broker, {
       page: () => ({ status: 302, headers: { location: "https://evil.example/page" } }),
       pdf: () => ({ status: 200, body: pdfBody() }),
@@ -476,7 +475,7 @@ describe("Gate F: the broker's current snapshot is the only freshness baseline",
     expect(lines.join("\n")).toMatch(/heartbeat not delivered/);
   });
 
-  it("GF-A04: a lost heartbeat never turns a completed publication into a failure", async () => {
+  it("a lost heartbeat never turns a completed publication into a failure", async () => {
     const bodyA = pdfBody("only");
     const { transport } = createTestTransport(
       broker,

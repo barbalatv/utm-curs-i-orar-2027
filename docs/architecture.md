@@ -52,10 +52,16 @@ an upload. See [publisher trust and recovery limits](publisher.md#trust-boundary
 
 ## Candidate publication
 
-MD Publisher runs on a machine with access to FCIM, currently a Moldova laptop. Its
+MD Publisher runs on an operator-managed publisher host with access to FCIM. Its
 freshness baseline is the snapshot named by the broker's `current.json`. Local
 `state/last-run.json` is usable only while it names that same snapshot. Otherwise the
 publisher rebuilds the baseline from the broker's manifest and archived Page API bytes.
+
+The steady-state flow is **Publisher host → Cloudflare Broker → Render semantic
+acceptance**. The publisher CLI is platform-independent; an external user-systemd timer
+or Windows Task Scheduler can invoke it, and manual invocation is available for operations
+and development. See [current production deployment](publisher.md#current-production-deployment-debian-user-systemd)
+for the verified host and scheduler configuration.
 
 The publisher conditionally checks the page and each PDF. A conditional PDF request
 returning `200` triggers publication even when the page and URL are unchanged. When no
@@ -97,7 +103,7 @@ publications to eight.
 
 Publisher-observed ETags and Last-Modified values are recorded separately from trusted
 upstream validators. MD-published manifests set `upstream_etag` and
-`upstream_last_modified` to `null`; Render does not skip downloads on a laptop's claim
+`upstream_last_modified` to `null`; Render does not skip downloads on a publisher's claim
 of unchanged validators. It hashes the downloaded bytes before deciding they are unchanged.
 
 The upload path supplies R2's checksum option. In-process R2 test doubles exercise rejection
@@ -152,9 +158,8 @@ Every response must be a PDF rather than a challenge page.
 
 A configured broker failure does **not** automatically switch the updater to direct FCIM.
 It retains existing data, or attempts its verified seed if no schedule is available.
-Broker routes, cron, and queue handlers themselves make no FCIM requests. The retained
-`worker-egress/` implementation, egress binding, and older fetch helpers are not invoked
-by current broker routes or maintenance; their presence is not evidence of an active path.
+Broker routes, cron, and queue handlers do not perform FCIM network requests.
+Official source acquisition is performed by the publisher host.
 
 The authenticated application admin endpoint also retains an explicit official-PDF
 refresh path, including when broker mode is configured. It uses direct transport and

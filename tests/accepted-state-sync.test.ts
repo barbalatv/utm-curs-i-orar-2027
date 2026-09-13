@@ -966,7 +966,7 @@ describe("accepted-state synchronization & transaction ordering", () => {
     expect(restored?.metadata.source_pdf_hash).toBe(hash18);
   });
 
-  it("Audit E-04 Hard Gate: durable-to-local resync failure halts tick immediately and never evaluates candidate", async () => {
+  it("halts the course update before candidate evaluation when durable-to-local resync fails", async () => {
     // Local state is r18
     const r18Schedule = await makeSchedule(
       pdfBytes18,
@@ -1033,7 +1033,7 @@ describe("accepted-state synchronization & transaction ordering", () => {
     }
   });
 
-  it("Audit E-10: same PDF hash reparsed under bumped parser version updates accepted pointer and payload", async () => {
+  it("same PDF hash reparsed under bumped parser version updates accepted pointer and payload", async () => {
     const olderSchedule = await makeSchedule(
       pdfBytes18,
       "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-18.pdf",

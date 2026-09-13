@@ -1,5 +1,5 @@
 /**
- * Audit E-03 regression suite: `bootstrapScheduleState`'s `totalTimeoutMs` is a real wall-clock
+ * `bootstrapScheduleState`'s `totalTimeoutMs` is a real wall-clock
  * bound.
  *
  * The defect these tests exist for is subtle and easy to reintroduce: an `AbortController` whose
@@ -24,7 +24,7 @@ const TOLERANCE_MS = 400;
 const BROKER = "https://broker.fcim.internal";
 const SEED_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-18.pdf";
 
-describe("Audit E-03: bootstrap total deadline is a real wall-clock bound", () => {
+describe("bootstrap total deadline is a real wall-clock bound", () => {
   let tempDir: string;
   let course1Schedule: Schedule;
   let course1Accepted: { pointer: AcceptedPointer; payloadBytes: Uint8Array };

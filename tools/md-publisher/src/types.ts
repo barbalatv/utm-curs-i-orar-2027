@@ -2,7 +2,7 @@
  * MD Publisher contracts.
  *
  * The publisher is a transport. Nothing in this file describes a timetable, a course year or an
- * acceptance decision, because the laptop is never allowed to have an opinion about any of them.
+ * acceptance decision, because the publisher has no authority over any of them.
  */
 
 export interface PublisherConfig {

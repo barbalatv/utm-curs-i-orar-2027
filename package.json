@@ -15,10 +15,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "typecheck:worker": "tsc -p worker/tsconfig.json --noEmit",
-    "typecheck:worker-egress": "tsc -p worker-egress/tsconfig.json --noEmit",
     "typecheck:publisher": "tsc -p tools/md-publisher/tsconfig.json --noEmit",
     "check:worker": "wrangler deploy --dry-run --config worker/wrangler.toml",
-    "check:worker-egress": "wrangler deploy --dry-run --config worker-egress/wrangler.toml",
     "build:publisher": "tsc -p tools/md-publisher/tsconfig.build.json"
   },
   "dependencies": {
