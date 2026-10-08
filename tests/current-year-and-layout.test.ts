@@ -38,7 +38,7 @@ describe("official WordPress fallback", () => {
         headers: { "content-type": "application/json" },
       })),
     );
-    const html = await fetchWordPressSchedulePage("https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view");
+    const html = await fetchWordPressSchedulePage("https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view");
     expect(discoverPdf(html, 1, new Date("2026-09-05T12:00:00.000Z")).academic_year).toBe("2026/2027");
   });
 });

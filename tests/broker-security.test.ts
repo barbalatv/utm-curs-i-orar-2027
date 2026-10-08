@@ -19,7 +19,7 @@ import { publishThroughApi } from "./helpers/md-publication";
 
 const SNAPSHOT_ID = "2026-09-08T02-08-48-000Z-7a3b4c19";
 const PDF_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-18.pdf";
-const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view";
 
 const restorers: (() => void)[] = [];
 afterEach(() => {
@@ -499,7 +499,7 @@ describe("canonical Page API endpoint policy", () => {
     expect(() => resolvePageApiUrl("https://fcim.utm.md/wp-json/wp/v2/pages?slug=other&context=view")).toThrow(
       /Invalid Page API URL/,
     );
-    expect(() => resolvePageApiUrl("https://evil.example/wp-json/wp/v2/pages?slug=orar&context=view")).toThrow(
+    expect(() => resolvePageApiUrl("https://evil.example/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view")).toThrow(
       /Invalid Page API URL/,
     );
   });

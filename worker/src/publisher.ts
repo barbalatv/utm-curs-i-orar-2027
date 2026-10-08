@@ -25,7 +25,10 @@
 
 import { extractOfficialPdfUrls, getPdfFilename } from "./extractor";
 import { buildFinalizeJob, fileIdForIndex, qualifiedPdfFilename, validatePendingFile } from "./jobs";
-import { isOfficialTimetablePdfUrl } from "../../worker-shared/fcim-policy";
+import {
+  isOfficialTimetablePdfUrl, CANONICAL_PAGE_API_URL, CANONICAL_PAGE_ID,
+  LEGACY_PAGE_API_URL, LEGACY_PAGE_ID, PAGE_MIGRATION_MODIFIED_GMT,
+} from "../../worker-shared/fcim-policy";
 import {
   PENDING_MAX_AGE_MS, RECONCILE_PAGE_SIZE, RECONCILE_SCAN_PAGES,
   readScanCursor, writeScanCursor, runRetention, snapshotIdInstant, snapshotWorkExpired,
@@ -438,6 +441,9 @@ export async function openPublication(
   }
 
   const pdfUrls = extractOfficialPdfUrls(renderedHtml);
+  if (pageId !== CANONICAL_PAGE_ID) {
+    return { ok: false, status: 400, code: "invalid_page_identity", error: "Page API payload is not the canonical full-time timetable page" };
+  }
   if (pdfUrls.length === 0) {
     return {
       ok: false,
@@ -469,10 +475,19 @@ export async function openPublication(
   let baseline: string | null = null;
   if (previousPointer) {
     baseline = previousPointer.page_modified_gmt ?? null;
+    const manifest = await loadPreviousManifest(env, previousPointer);
     if (baseline === null) {
       // A legacy four-field pointer carries no Page API metadata; the immutable manifest does.
-      const manifest = await loadPreviousManifest(env, previousPointer);
       baseline = manifest?.source.page_modified_gmt ?? null;
+    }
+    // Timestamps belong to a WordPress page identity. Only the reviewed, one-way
+    // 1739 -> 28642 source migration may use its own verified timestamp floor.
+    // Read immutable broker state, never a publisher-supplied baseline or force flag.
+    if (manifest?.source.page_api_url === LEGACY_PAGE_API_URL &&
+        manifest.source.page_id === LEGACY_PAGE_ID &&
+        (previousPointer.page_id === undefined || previousPointer.page_id === LEGACY_PAGE_ID) &&
+        pageApiUrl === CANONICAL_PAGE_API_URL && pageId === CANONICAL_PAGE_ID) {
+      baseline = PAGE_MIGRATION_MODIFIED_GMT;
     }
   }
 

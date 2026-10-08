@@ -39,8 +39,8 @@ const PDF_FIXTURE = path.join(__dirname, "fixtures", "anul_i_semestrul_ii-1.pdf"
 const PDF_FIXTURE_B = path.join(__dirname, "fixtures", "anul_i_semestrul_i-3.pdf");
 const OLD_SEED_FIXTURE = path.join(__dirname, "fixtures", "anul_i_semestrul_i-5.pdf");
 const NEW_SEED_FIXTURE = path.join(__dirname, "..", "data", "seed", "anul_i_semestrul_i-18.pdf");
-const PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
-const WORDPRESS_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+const PAGE_URL = "https://fcim.utm.md/orar-sectia-zi-2/";
+const WORDPRESS_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view";
 const PDF_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/03/anul_i_semestrul_ii-1.pdf";
 const OLD_SEED_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-5.pdf";
 const NEW_SEED_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-18.pdf";

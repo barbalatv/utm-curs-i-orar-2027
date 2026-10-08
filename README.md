@@ -1,7 +1,10 @@
 # Orar FCIM UTM
 
 A timetable web app for **FCIM UTM students in Anul I and Anul II**, built from
-schedule PDFs published on the [official FCIM timetable page](https://fcim.utm.md/procesul-de-studii/orar/).
+schedule PDFs published on the [official FCIM timetable page](https://fcim.utm.md/orar-sectia-zi-2/).
+
+The October 2026 source migration is documented in the
+[migration verification and deployment runbook](docs/fcim-source-migration-01.md).
 Choose your course year and group to see your classes on desktop or mobile.
 
 [![CI](https://github.com/barbalatv/utm-curs-i-orar-2027/actions/workflows/ci.yml/badge.svg)](https://github.com/barbalatv/utm-curs-i-orar-2027/actions/workflows/ci.yml)
@@ -144,6 +147,6 @@ See [API behavior](docs/debugging.md#public-api-behavior) for response details a
 ## License and data sources
 
 Repository source code is licensed under the [MIT License](LICENSE). Timetable PDFs and
-data originate from [UTM/FCIM sources](https://fcim.utm.md/procesul-de-studii/orar/);
+data originate from [UTM/FCIM sources](https://fcim.utm.md/orar-sectia-zi-2/);
 these third-party materials are **not licensed under this project's MIT license**.
 Bundled PDF provenance and hashes are recorded in [architecture](docs/architecture.md#bundled-seeds-and-provenance).

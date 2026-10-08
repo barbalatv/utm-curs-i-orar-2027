@@ -3,6 +3,10 @@
 [Project overview](../README.md) · [Architecture](architecture.md) · [MD Publisher operations](publisher.md)
 
 Commands below run from the repository root unless a different directory is stated.
+
+For the October 2026 FCIM full-time page move, use the
+[source migration runbook](fcim-source-migration-01.md) for verified baseline identity,
+staged deployment, production checks and rollback.
 PowerShell examples use `Invoke-RestMethod` to avoid differences between the Windows
 `curl` alias and `curl.exe`.
 

@@ -45,7 +45,7 @@ const COURSE_1_URL = `${UPLOAD_BASE}/anul_i_semestrul_i-18.pdf`;
 function renderPagePayload(modifiedGmt = "2026-09-08T12:57:59"): string {
   return JSON.stringify([
     {
-      id: 1739,
+      id: 28642,
       modified_gmt: modifiedGmt,
       content: {
         rendered: `

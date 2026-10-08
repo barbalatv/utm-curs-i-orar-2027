@@ -22,6 +22,8 @@ import { pageModifiedGmtOf, lastRunFrom, refreshCacheFromBroker, resolveBaseline
 import { BrokerClient } from "./broker";
 import { newOperationId, sha256Hex } from "./hash";
 import { StateStore } from "./state";
+import { CANONICAL_PAGE_API_URL, CANONICAL_PAGE_ID, LEGACY_PAGE_ID } from "../../../worker-shared/fcim-policy";
+import { extractOfficialPdfUrls } from "../../../worker-shared/pdf-inventory";
 import {
   downloadPdf,
   fetchPageApi,
@@ -75,8 +77,8 @@ async function detectChange(
   const observed = new Map<string, { etag: string | null; lastModified: string | null }>();
 
   const page = await fetchPageApi(transport, config.timeoutMs, {
-    etag: baseline?.page_etag,
-    lastModified: baseline?.page_last_modified,
+    etag: baseline?.page_api_url === CANONICAL_PAGE_API_URL ? baseline.page_etag : null,
+    lastModified: baseline?.page_api_url === CANONICAL_PAGE_API_URL ? baseline.page_last_modified : null,
   });
 
   const unconditionalPage = async () => {
@@ -110,7 +112,25 @@ async function detectChange(
   const reasons: string[] = [];
   if (pageChanged) reasons.push("Page API bytes changed");
 
+  // A changed, verified authoritative inventory replaces the old inventory. Removed
+  // URLs are no longer acquisition targets. Retained missing PDFs still fail, and
+  // an unchanged page still revalidates every baseline PDF as before.
+  let currentUrls: Set<string> | null = null;
+  if (pageChanged) {
+    const payload = JSON.parse(new TextDecoder().decode(page.bytes!));
+    const doc = Array.isArray(payload) ? (payload.length === 1 ? payload[0] : null) : payload;
+    if (doc?.id !== CANONICAL_PAGE_ID || typeof doc?.content?.rendered !== "string") {
+      throw new Error("Changed Page API payload is not the canonical timetable page");
+    }
+    currentUrls = new Set(extractOfficialPdfUrls(doc.content.rendered));
+    if (currentUrls.size === 0) throw new Error("Changed Page API payload has no official PDFs");
+  }
+
   for (const pdf of baseline.pdfs) {
+    if (currentUrls && !currentUrls.has(pdf.source_url)) {
+      reasons.push(`${pdf.source_url} removed from authoritative page`);
+      continue;
+    }
     if (pdf.etag || pdf.last_modified) {
       const result = await revalidatePdf(
         transport,
@@ -297,6 +317,24 @@ async function attemptPublication(
   return { plan, completeStatus: completed.status };
 }
 
+function parsePageIdentity(pageBytes: Uint8Array): { ok: true; pageId: number } | { ok: false; error: string } {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(pageBytes));
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  const doc = Array.isArray(payload) ? (payload.length === 1 ? payload[0] : null) : payload;
+  if (!doc || typeof doc !== "object") {
+    return { ok: false, error: "not a page object" };
+  }
+  const id = (doc as { id?: unknown }).id;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) {
+    return { ok: false, error: "missing or invalid positive page id" };
+  }
+  return { ok: true, pageId: id };
+}
+
 /**
  * Resume an attempt that a previous run left open, or start a fresh one.
  *
@@ -304,11 +342,32 @@ async function attemptPublication(
  * and are the only bytes that attempt is allowed to send. Nothing observed while finishing it is
  * ever recorded as a freshness baseline — the baseline is re-derived from the broker afterwards.
  */
-async function resumeDetection(state: StateStore): Promise<
-  { operationId: string; detection: DetectionOutcome } | null
-> {
+async function resumeDetection(
+  state: StateStore,
+  log: (line: string) => void,
+): Promise<{ operationId: string; detection: DetectionOutcome } | null> {
   const resumable = state.readResumableOperation();
   if (!resumable) return null;
+
+  const identity = parsePageIdentity(resumable.pageBytes);
+  if (!identity.ok) {
+    throw new Error(`Resumable operation has corrupt or ambiguous page payload: ${identity.error}`);
+  }
+
+  if (identity.pageId === LEGACY_PAGE_ID) {
+    log(
+      `invalidating incompatible resumable operation ${resumable.operation.operation_id} (retired page ID ${LEGACY_PAGE_ID}); starting fresh canonical discovery`,
+    );
+    state.discardRun();
+    return null;
+  }
+
+  if (identity.pageId !== CANONICAL_PAGE_ID) {
+    throw new Error(
+      `Resumable operation ${resumable.operation.operation_id} references unknown page identity ${identity.pageId}; failing closed`,
+    );
+  }
+
   return {
     operationId: resumable.operation.operation_id,
     detection: {
@@ -383,7 +442,7 @@ export async function runPublish(
   /** Set only when this run inherited an attempt a previous run left open. */
   let resumedOperationId: string | null = null;
   try {
-    const resumed = await resumeDetection(state);
+    const resumed = await resumeDetection(state, log);
     if (resumed) {
       log("resuming a previously interrupted publication");
       detection = resumed.detection;

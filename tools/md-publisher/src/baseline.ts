@@ -20,6 +20,7 @@
 import type { BrokerClient } from "./broker";
 import { sha256Hex } from "./hash";
 import type { StateStore } from "./state";
+import { CANONICAL_PAGE_API_URL } from "../../../worker-shared/fcim-policy";
 import type {
   BaselinePdf,
   FreshnessBaseline,
@@ -81,6 +82,7 @@ export async function brokerSnapshotBaseline(
 
   return {
     origin: "broker_snapshot",
+    page_api_url: manifest.page_api_url,
     broker_snapshot_id: snapshotId,
     page_api_sha256: sha256Hex(pageBytes),
     // The snapshot records no trusted page validator, so the next Page API request is
@@ -95,6 +97,7 @@ export async function brokerSnapshotBaseline(
 function baselineFromCache(last: LastRunState): FreshnessBaseline {
   return {
     origin: "local_cache",
+    page_api_url: last.page_api_url,
     broker_snapshot_id: last.broker_snapshot_id,
     page_api_sha256: last.page_api_sha256,
     page_etag: last.page_etag,
@@ -131,7 +134,7 @@ export async function resolveBaseline(
   }
 
   const last = state.readLastRun();
-  if (last && last.broker_snapshot_id === current.snapshot_id && last.pdfs.length > 0) {
+  if (last && last.page_api_url === CANONICAL_PAGE_API_URL && last.broker_snapshot_id === current.snapshot_id && last.pdfs.length > 0) {
     return {
       baseline: baselineFromCache(last),
       current_snapshot_id: current.snapshot_id,
@@ -170,6 +173,7 @@ export function lastRunFrom(
 ): LastRunState {
   return {
     schema_version: 2,
+    page_api_url: baseline.page_api_url,
     broker_snapshot_id: baseline.broker_snapshot_id,
     page_etag: baseline.page_etag,
     page_last_modified: baseline.page_last_modified,

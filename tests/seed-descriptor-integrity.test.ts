@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 const tempDir = await mkdtemp(path.join(tmpdir(), "fcim-seed-descriptor-"));
 const CURRENT_SEED = path.join(__dirname, "..", "data", "seed", "anul_i_semestrul_i-18.pdf");
 const PREVIOUS_SEED = path.join(__dirname, "fixtures", "anul_i_semestrul_i-16.pdf");
-const PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
+const PAGE_URL = "https://fcim.utm.md/orar-sectia-zi-2/";
 const CURRENT_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-18.pdf";
 const PREVIOUS_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-16.pdf";
 const CURRENT_SHA = "a4c610d24dd53bbf87c5da312ffebf7aabc112c7f28338587e18e1eb0526b79a";

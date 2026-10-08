@@ -49,7 +49,7 @@ const PAGE_FIXTURE = path.join(__dirname, "fixtures", "orar-page-autumn-2026.htm
  *  live path, so they follow the captured page rather than whichever seed the app ships. */
 const ANUL_I_PDF = path.join(__dirname, "fixtures", "anul_i_semestrul_i-9.pdf");
 const ANUL_II_PDF = path.join(__dirname, "fixtures", "anul_ii_semestrul_iii-8.pdf");
-const PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
+const PAGE_URL = "https://fcim.utm.md/orar-sectia-zi-2/";
 const ANUL_I_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-9.pdf";
 const ANUL_II_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_ii_semestrul_iii-8.pdf";
 const AUTUMN_2026 = new Date("2026-09-15T12:00:00.000Z");

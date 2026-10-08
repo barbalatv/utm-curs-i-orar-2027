@@ -101,6 +101,13 @@ when the baseline has one. Equal timestamps are allowed. A timestamp more than
 no publisher force override. Page bodies are limited to 1 MiB, PDFs to 25 MiB, and open
 publications to eight.
 
+The canonical source is page 28642 (`orar-sectia-zi-2`). The reviewed one-way migration
+from immutable legacy endpoint/page 1739 uses the verified new-page timestamp floor
+`2026-10-06T08:54:47`; subsequent publications compare against page 28642's own current
+timestamp. New publications with a different page identity are refused. This does not
+disable the future guard or permit reverse migration. See the
+[migration runbook](fcim-source-migration-01.md) for evidence and deployment order.
+
 Publisher-observed ETags and Last-Modified values are recorded separately from trusted
 upstream validators. MD-published manifests set `upstream_etag` and
 `upstream_last_modified` to `null`; Render does not skip downloads on a publisher's claim

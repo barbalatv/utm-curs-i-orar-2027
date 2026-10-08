@@ -31,7 +31,7 @@ import {
   waybackUrl,
   type FetchedResource,
 } from "@/lib/source/downloader";
-import { splitPdfRevision } from "@/lib/source/revision";
+import { splitPdfRevision, isNewerPdfPublication } from "@/lib/source/revision";
 import {
   fetchAcceptedPointer,
   fetchAcceptedSchedule,
@@ -231,13 +231,8 @@ export function selectCandidateFile(manifest: SnapshotManifest, courseYear: numb
   if (matches.length === 1) return matches[0];
 
   let best = matches[0];
-  let bestRev = splitPdfRevision(best.filename).revision;
   for (const m of matches.slice(1)) {
-    const rev = splitPdfRevision(m.filename).revision;
-    if (rev > bestRev) {
-      best = m;
-      bestRev = rev;
-    }
+    if (isNewerPdfPublication(m.source_url, best.source_url)) best = m;
   }
   return best;
 }

@@ -451,6 +451,14 @@ the PDF URL is unchanged. With no usable validator, the client downloads and com
 hashes. It never treats an upstream error as an unchanged result. After completion or
 a lost CAS race, it rebuilds its cache from the broker's actual current snapshot.
 
+When a verified changed authoritative page removes a PDF URL, that URL is retired from
+acquisition before checking old PDFs. Missing retained PDFs still fail, including when the
+page is unchanged. All new inventory PDFs must pass integrity checks before publication.
+Page validators are scoped to their endpoint; legacy/unscoped caches are rebuilt from broker
+current and never condition the migrated endpoint. The canonical endpoint now uses
+`slug=orar-sectia-zi-2` (page 28642). Use the
+[source-migration runbook](fcim-source-migration-01.md) for staged deployment and rollback.
+
 An attempt resumes only when `run/operation.json` and `run/page.json` exist and the
 page hash matches the recorded operation. A new attempt uses a new UUIDv4. PDFs are
 downloaded one at a time into temporary files, counted, hashed, checked for `%PDF-`, and

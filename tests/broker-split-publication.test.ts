@@ -28,7 +28,7 @@ import {
 } from "./helpers/md-publication";
 import { createHarness, drainQueue, type WorkerHarness } from "./helpers/worker-doubles";
 
-const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view";
 const PDF_BODY = pdfBody("shared");
 
 /** No broker code path may reach the Internet; a call here is a test failure. */
@@ -91,7 +91,7 @@ describe("staged publication: opening a publication", () => {
     const h = harness();
     const page = JSON.stringify([
       {
-        id: 1739,
+        id: 28642,
         modified_gmt: "2026-09-08T12:57:59",
         content: {
           rendered: `

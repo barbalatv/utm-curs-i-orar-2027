@@ -48,7 +48,7 @@ export function readPageApiDocument(rawText: string): PageApiDocument {
     throw new PageApiError(`Page API returned invalid JSON: ${(err as Error).message}`);
   }
 
-  const item = Array.isArray(payload) ? payload[0] : payload;
+  const item = Array.isArray(payload) ? (payload.length === 1 ? payload[0] : null) : payload;
   if (!item || typeof item !== "object") {
     throw new PageApiError("Page API payload is not a page object");
   }
