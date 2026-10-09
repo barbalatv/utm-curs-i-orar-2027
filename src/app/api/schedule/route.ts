@@ -1,11 +1,13 @@
 import type { NextRequest } from "next/server";
+import { publicOptions, withPublicCors } from "@/lib/public-cors";
 import { apiError, json, resolveCourse, withErrorHandling } from "@/lib/api";
 import { filterLessons, normalizeDayParam, requireSchedule, sortLessons } from "@/lib/services/schedule-service";
 
 export const dynamic = "force-dynamic";
 
 /** GET /api/schedule?course=2&group=SI-261&day=Luni&teacher=&subject=&room=&q= */
-export const GET = withErrorHandling(async (request: NextRequest) => {
+export const OPTIONS = publicOptions;
+export const GET = withPublicCors(withErrorHandling(async (request: NextRequest) => {
   const params = request.nextUrl.searchParams;
   const course = resolveCourse(params);
   if (!course.ok) return course.response;
@@ -35,4 +37,4 @@ export const GET = withErrorHandling(async (request: NextRequest) => {
     count: lessons.length,
     warnings: schedule.warnings,
   });
-});
+}));

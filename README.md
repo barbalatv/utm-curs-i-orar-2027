@@ -150,3 +150,8 @@ Repository source code is licensed under the [MIT License](LICENSE). Timetable P
 data originate from [UTM/FCIM sources](https://fcim.utm.md/orar-sectia-zi-2/);
 these third-party materials are **not licensed under this project's MIT license**.
 Bundled PDF provenance and hashes are recorded in [architecture](docs/architecture.md#bundled-seeds-and-provenance).
+# Indoor map integration
+
+Optional bounded CORS for the FCIM map is documented in
+[docs/map-02b-integration.md](docs/map-02b-integration.md).
+The default allowlist is empty; existing API JSON and clients remain compatible.
