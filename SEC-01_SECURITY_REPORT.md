@@ -208,6 +208,18 @@ DB migrations/tests на реальной БД не запускались. Но
 изолированным Postgres обязателен до Gate B; push разрешён только в существующую
 producer release branch. Actual hosted results нового implementation SHA — в packet.
 
+**Новый hosted full CI: SUCCESS** на implementation
+`dd14b6b2156050b7b23e0482a1fb90b0947aeba9`,
+[run 38004140717](https://github.com/barbalatv/utm-curs-i-orar-2027/actions/runs/38004140717).
+Disposable PostgreSQL migrations и 6/6 DB tests PASS; unit 737 PASS / 6 Windows-only
+skips / 0 failed, 34 files; все app/Worker/publisher typechecks, lint, Next/publisher
+builds, Worker dry-run и 4/4 Chromium E2E PASS. Полный новый dependency tree проверен
+на Ubuntu/Node 22. Synthetic merge checkout `04cde5d…` не является merge в main.
+Эти результаты устраняют прежний hosted/DB evidence gap для implementation commit,
+но не заменяют renewed independent review, live image inspection или Gate B.
+Повторный production audit после push — 0 findings, exit 0. Документационный
+follow-up не меняет package/lock; exact final publication-head CI проверяется отдельно.
+
 Unit suite включает 14 параметризованных проверок bounded public CORS, а также
 API smoke, parser/source acceptance, broker/retention/publication trust-boundary
 tests. Исходные assertions не менялись.

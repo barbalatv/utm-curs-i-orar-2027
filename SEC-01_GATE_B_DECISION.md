@@ -4,7 +4,7 @@
 
 **BLOCKED — Gate B CLOSED; Gate C CLOSED.** Service-level rollback/artifact/UI
 readiness и private environment baseline не подтверждены; остаточный dev High risk
-не принят человеком; изменённое dependency tree ещё не проходило hosted CI/review.
+не принят человеком; renewed independent review ещё не получен.
 Локальная dependency remediation завершена и все запущенные обязательные
 producer regressions прошли. Этот verdict не разрешает внешние изменения.
 
@@ -77,7 +77,39 @@ PASS. Они не доказывают acceptance обновлённого produ
 До Gate B обязателен новый hosted full CI с disposable DB на exact updated PR head.
 Свежий повторный audit перед разрешённым push: production 0 (exit 0), full 9
 (5 High/4 Moderate, exit 1), installed patched versions и цепочки совпали с SEC-01.
-Fresh hosted update run: **PENDING** до завершения разрешённого publication step.
+Fresh hosted implementation update run: **SUCCESS**, подробности ниже.
+
+## Fresh hosted CI и publication evidence
+
+Implementation commit **`dd14b6b2156050b7b23e0482a1fb90b0947aeba9`** создан и обычным
+push опубликован в существующей release branch. [Run 38004140717](https://github.com/barbalatv/utm-curs-i-orar-2027/actions/runs/38004140717)
+завершился **SUCCESS**, `2026-10-09T23:25:35Z` / 10 октября 02:25:35 Europe/Chisinau.
+Run headSha совпал с implementation SHA. Checkout synthetic PR merge
+`04cde5d23e5e400d60f26dc52a6dad265d2a5269` проверял этот head на base `735b64f…`;
+actual merge в main не происходил.
+
+| Обязательная hosted проверка | Actual result нового dependency tree |
+|---|---|
+| `npm ci` | PASS |
+| Committed PostgreSQL migrations | PASS, disposable Postgres 16 |
+| PostgreSQL integration | **6/6 PASS**, 1 file |
+| Main unit suite | **737 PASS / 6 skipped / 0 failed**, 34 files |
+| App / Worker / publisher typechecks | Все PASS |
+| lint | PASS |
+| Next production build / publisher build | Оба PASS |
+| Worker local dry-run | PASS, не deployment |
+| Chromium E2E | **4/4 PASS** |
+
+Шесть skips — существующие Windows-only publisher installer cases; локальные
+Windows 743/743 покрыли их. Hosted Next build выполнен на Ubuntu/Node 22;
+Docker image build, live Linux container inspection и production acceptance
+в этот workflow не входят. Audit после implementation push снова 0 production.
+
+Эта таблица закрепляет проверенный implementation SHA. Следующий commit содержит
+только CI evidence в двух SEC-01 reports, без runtime/dependency изменений.
+Окончательный publication HEAD определяется Git/`headRefOid` существующего PR #58;
+его fresh full CI обязателен и проверяется до передачи итогового ответа. Последнее
+состояние exact-head checks доступно в PR, а не выводится из старого run.
 
 ## Render / env readiness
 
@@ -110,8 +142,9 @@ Rollback должен вернуть и runtime revision, и saved env key; со
 Исходный approved producer HEAD — `badad94fbf6e2a2caf87e028cda029f993eaadd8`;
 publication сохраняет существующую `codex/map-02b-producer-integration` и ancestry,
 без force-push. Публикуемый scope: `package.json`, `package-lock.json`
-(30 patch-version records) и три SEC-01 report files. Новый implementation SHA
-фиксируется после commit; состояние CI обновляется после завершения run.
+(30 patch-version records) и три SEC-01 report files. Implementation SHA —
+`dd14b6b2156050b7b23e0482a1fb90b0947aeba9`; follow-up docs commit сохраняет эти
+dependency bytes и содержит только фактические CI результаты.
 Secret check пяти файлов: Gitleaks 8.30.1 PASS, 0 findings; positive control exit 42;
 ручной report review PASS. .env, secrets, raw evidence и scanner в commit не входят.
 Из 176 исходных tracked files SHA-256 изменился ровно у двух dependency files;
@@ -121,7 +154,9 @@ Consumer HEAD остаётся `a6fe0d35fc9ddfad410de1b795911b2623695852` на
 `codex/map-02b-consumer-integration`; status чистый. Runtime/API/schema/CORS/parser/
 source acceptance/DB/broker/publisher и consumer mappings/geometry/storage не менялись.
 Existing producer [PR #58](https://github.com/barbalatv/utm-curs-i-orar-2027/pull/58)
-остаётся Draft; новый PR не создаётся. Consumer PR #2 остаётся на прежнем head;
+обновлён, остаётся OPEN / Draft, autoMergeRequest=null; новый PR не создавался.
+PR scope на main: 13 files, включая исходные 8 CORS/route/docs files и 5 SEC-01 files.
+Protected source/config diff от `badad94…` — пуст. Consumer PR #2 остаётся на прежнем head;
 его description/settings не обновляются.
 
 ## Что должно закрыться перед независимым Gate B approval
@@ -133,12 +168,13 @@ Existing producer [PR #58](https://github.com/barbalatv/utm-curs-i-orar-2027/pul
    удаления расписаний/DB/R2; принимает ограничения normal redeployment/cold start.
 3. Независимо принимает/отклоняет каждый residual risk в указанной dev scope;
    при отказе разрешает отдельное исправление, не `audit fix --force`.
-4. В рамках уже разрешённого producer PR update фиксирует новый SHA и получает
-   fresh hosted full CI; renewed independent review остаётся обязательным.
+4. Проверяет окончательный publication HEAD и fresh hosted full CI; implementation
+   full CI уже SUCCESS. Renewed independent review остаётся обязательным.
 5. Затем независимо решает Gate B, включая разрешённый incident rollback scope.
    Gate C/Pages/consumer deployment остаются закрытыми до producer acceptance.
 
-Разрешены только producer branch commit/push и existing Draft PR update.
+Producer implementation commit/push и existing Draft PR update выполнены в рамках
+разрешения пользователя; финальная документационная публикация сохраняет тот же scope.
 Merge/auto-merge, Render env/settings/deploy/rollback, real DB changes,
 consumer PR/publication и GitHub Pages settings **не выполнялись** и не разрешены.
 Residual risk не принят; production release ожидает независимого human approval.
