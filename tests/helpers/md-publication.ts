@@ -9,7 +9,7 @@ import worker from "../../worker/src/index";
 import type { Env, ExecutionContext } from "../../worker/src/types";
 import { TEST_PUBLISHER_TOKEN, type WorkerHarness } from "./worker-doubles";
 
-export const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+export const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view";
 export const UPLOAD_BASE = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09";
 
 export function pdfBody(marker = "default"): Uint8Array {
@@ -32,7 +32,7 @@ export function pagePayload(options: PageOptions = {}): string {
   const anchors = urls.map((url) => `<a href="${url}">${url}</a>`).join("\n");
   return JSON.stringify([
     {
-      id: options.pageId ?? 1739,
+      id: options.pageId ?? 28642,
       modified_gmt: options.modifiedGmt ?? "2026-09-08T12:57:59",
       content: { rendered: `<p>Orar</p>${anchors}` },
     },

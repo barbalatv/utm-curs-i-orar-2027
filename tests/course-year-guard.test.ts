@@ -51,8 +51,8 @@ const adminRefresh = (await import("@/app/api/admin/refresh/route")).POST;
 const ANUL_I_SEED = path.join(__dirname, "..", "data", "seed", "anul_i_semestrul_i-18.pdf");
 /** An older published Anul I timetable, used as pre-existing cache content. */
 const ANUL_I_OLD = path.join(__dirname, "fixtures", "anul_i_semestrul_i-5.pdf");
-const PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
-const WORDPRESS_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+const PAGE_URL = "https://fcim.utm.md/orar-sectia-zi-2/";
+const WORDPRESS_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view";
 const OLD_SEED_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-5.pdf";
 const NEW_SEED_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-18.pdf";
 const ANUL_II_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_ii_semestrul_iii-11.pdf";

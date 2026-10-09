@@ -94,6 +94,7 @@ function parseManifest(text: string, snapshotId: string): ManifestView {
   });
   return {
     snapshot_id: snapshotId,
+    page_api_url: stringOrNull(source.page_api_url),
     page_modified_gmt: stringOrNull(source.page_modified_gmt),
     files,
   };

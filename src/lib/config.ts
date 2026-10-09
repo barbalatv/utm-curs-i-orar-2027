@@ -4,10 +4,11 @@
  */
 import path from "node:path";
 import { DEFAULT_ODD_WEEK_ANCHOR } from "@/lib/client/time";
+import { CANONICAL_PAGE_URL } from "../../worker-shared/fcim-policy";
 
 const MINUTE_MS = 60_000;
 const MEGABYTE = 1024 * 1024;
-const DEFAULT_SCHEDULE_PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
+const DEFAULT_SCHEDULE_PAGE_URL = CANONICAL_PAGE_URL;
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];

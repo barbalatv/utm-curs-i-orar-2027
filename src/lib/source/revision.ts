@@ -38,3 +38,21 @@ export function pdfRevisionFromUrl(rawUrl: string): PdfRevision | null {
   if (!/\.pdf$/i.test(fileName)) return null;
   return splitPdfRevision(fileName);
 }
+
+/** Month directories are publication periods; WordPress suffixes restart within them. */
+export function isNewerPdfPublication(candidateUrl: string, currentUrl: string): boolean {
+  const candidate = pdfRevisionFromUrl(candidateUrl);
+  const current = pdfRevisionFromUrl(currentUrl);
+  if (!candidate || !current || candidate.family !== current.family) return false;
+  const candidatePath = new URL(candidateUrl).pathname;
+  const currentPath = new URL(currentUrl).pathname;
+  const period = (pathname: string) => /\/(\d{4})\/(0[1-9]|1[0-2])\/[^/]+$/.exec(pathname)?.slice(1).join("") ?? null;
+  const candidatePeriod = period(candidatePath);
+  const currentPeriod = period(currentPath);
+  if (candidatePeriod && currentPeriod && candidatePeriod !== currentPeriod) {
+    return candidatePeriod > currentPeriod;
+  }
+  // Without comparable publication periods, suffix ordering is local to one directory.
+  if (candidatePath.slice(0, candidatePath.lastIndexOf("/")) !== currentPath.slice(0, currentPath.lastIndexOf("/"))) return false;
+  return candidate.revision > current.revision;
+}

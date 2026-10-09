@@ -5,7 +5,14 @@
  */
 
 export const CANONICAL_PAGE_API_URL =
-  "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+  "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view";
+
+export const CANONICAL_PAGE_URL = "https://fcim.utm.md/orar-sectia-zi-2/";
+export const CANONICAL_PAGE_ID = 28642;
+// Read-only historical identity: never an allowed acquisition endpoint.
+export const LEGACY_PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+export const LEGACY_PAGE_ID = 1739;
+export const PAGE_MIGRATION_MODIFIED_GMT = "2026-10-06T08:54:47";
 
 const OFFICIAL_ORIGIN = "https://fcim.utm.md";
 const SAFE_PDF_FILENAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,190}\.pdf$/i;

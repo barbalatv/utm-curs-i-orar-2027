@@ -89,6 +89,8 @@ export interface RecordedPdf {
  */
 export interface LastRunState {
   schema_version: 2;
+  /** Scope HTTP validators to the endpoint that produced them; old caches are rebuilt. */
+  page_api_url?: string | null;
   /** The broker snapshot this baseline describes. Ignored unless it is `current.json`'s. */
   broker_snapshot_id: string;
   page_etag: string | null;
@@ -126,6 +128,7 @@ export interface BaselinePdf {
  */
 export interface FreshnessBaseline {
   origin: "broker_snapshot" | "local_cache";
+  page_api_url?: string | null;
   broker_snapshot_id: string;
   page_api_sha256: string;
   page_etag: string | null;
@@ -153,6 +156,7 @@ export interface ManifestFileView {
 
 export interface ManifestView {
   snapshot_id: string;
+  page_api_url: string | null;
   page_modified_gmt: string | null;
   files: ManifestFileView[];
 }

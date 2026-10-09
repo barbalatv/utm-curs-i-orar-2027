@@ -32,7 +32,7 @@ import {
 } from "./helpers/md-publication";
 import { createHarness, TEST_PUBLISHER_TOKEN, type WorkerHarness } from "./helpers/worker-doubles";
 
-const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+const PAGE_API_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view";
 
 /** Any FCIM request from inside a test is a bug: the broker never makes one. */
 let fcimCalls: string[] = [];
@@ -210,7 +210,7 @@ describe("the broker owns the plan", () => {
 
     const noPdfs = await openPublication(
       h,
-      JSON.stringify([{ id: 1, modified_gmt: "2026-09-08T12:57:59", content: { rendered: "<p>nothing</p>" } }]),
+      JSON.stringify([{ id: 28642, modified_gmt: "2026-09-08T12:57:59", content: { rendered: "<p>nothing</p>" } }]),
     );
     expect(noPdfs.status).toBe(400);
     expect((await body(noPdfs)).code).toBe("no_official_pdfs");
@@ -487,7 +487,7 @@ describe("temporal guards", () => {
     await publishThroughApi(h, { page: pagePayload({ modifiedGmt: "2026-09-08T12:57:59" }) });
 
     const untimed = JSON.stringify([
-      { id: 1739, content: { rendered: `<a href="${UPLOAD_BASE}/anul_i_semestrul_i-19.pdf">x</a>` } },
+      { id: 28642, content: { rendered: `<a href="${UPLOAD_BASE}/anul_i_semestrul_i-19.pdf">x</a>` } },
     ]);
     const response = await openPublication(h, untimed);
     expect(response.status).toBe(409);

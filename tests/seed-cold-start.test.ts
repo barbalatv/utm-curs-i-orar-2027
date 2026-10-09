@@ -39,8 +39,8 @@ const ANUL_II_SEED = path.join(__dirname, "..", "data", "seed", "anul_ii_semestr
 /** The revisions these two replaced - what a long-lived volume still holds. */
 const PREVIOUS_ANUL_I_SEED = path.join(__dirname, "fixtures", "anul_i_semestrul_i-16.pdf");
 const PREVIOUS_ANUL_II_SEED = path.join(__dirname, "fixtures", "anul_ii_semestrul_iii-10.pdf");
-const PAGE_URL = "https://fcim.utm.md/procesul-de-studii/orar/";
-const WORDPRESS_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view";
+const PAGE_URL = "https://fcim.utm.md/orar-sectia-zi-2/";
+const WORDPRESS_URL = "https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view";
 const ANUL_I_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_i_semestrul_i-18.pdf";
 const ANUL_II_URL = "https://fcim.utm.md/wp-content/uploads/sites/24/2026/09/anul_ii_semestrul_iii-11.pdf";
 const ANUL_I_HASH = "a4c610d24dd53bbf87c5da312ffebf7aabc112c7f28338587e18e1eb0526b79a";

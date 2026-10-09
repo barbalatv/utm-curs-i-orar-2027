@@ -85,10 +85,11 @@ describe("worker transport & URL policy", () => {
   });
 
   it("validates WordPress Page API URL", () => {
-    expect(isAllowedPageApiUrl("https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view")).toBe(true);
+    expect(isAllowedPageApiUrl("https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view")).toBe(true);
+    expect(isAllowedPageApiUrl("https://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view")).toBe(false);
     expect(isAllowedPageApiUrl("https://utm.md/wp-json/wp/v2/pages")).toBe(false);
     expect(isAllowedPageApiUrl("https://fcim.utm.md/wp-json/wp/v2/pages")).toBe(false);
-    expect(isAllowedPageApiUrl("http://fcim.utm.md/wp-json/wp/v2/pages?slug=orar&context=view")).toBe(false);
+    expect(isAllowedPageApiUrl("http://fcim.utm.md/wp-json/wp/v2/pages?slug=orar-sectia-zi-2&context=view")).toBe(false);
     expect(isAllowedPageApiUrl("https://malicious.com/wp-json")).toBe(false);
   });
 
@@ -127,7 +128,7 @@ describe("worker accepted-state gateway & CAS semantics", () => {
       academic_year: "2026/2027",
       semester: "Semestrul I",
       course_year: 1,
-      source_page_url: "https://fcim.utm.md/procesul-de-studii/orar/",
+      source_page_url: "https://fcim.utm.md/orar-sectia-zi-2/",
       source_pdf_url: PDF_URL,
       source_pdf_hash: "a4c610d24dd53bbf87c5da312ffebf7aabc112c7f28338587e18e1eb0526b79a",
       source_kind: "live" as const,
