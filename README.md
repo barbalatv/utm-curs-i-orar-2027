@@ -1,18 +1,45 @@
 # Orar FCIM UTM
 
-A timetable web app for **FCIM UTM students in Anul I and Anul II**, built from
-schedule PDFs published on the [official FCIM timetable page](https://fcim.utm.md/orar-sectia-zi-2/).
+An independent, unofficial timetable app for **FCIM students at the Technical University
+of Moldova**. Choose **Anul I or Anul II** and your group to read official PDF timetables
+on desktop or mobile, with day/week views, search, and source/update information.
 
-The October 2026 source migration is documented in the
-[migration verification and deployment runbook](docs/fcim-source-migration-01.md).
-Choose your course year and group to see your classes on desktop or mobile.
+Built with **Next.js, React, and TypeScript**. The engineering work is turning PDF table
+geometry into validated lessons and keeping accepted schedules available when updates fail.
+
+**[Live demo](https://utm-curs-i-orar-2027.onrender.com/)** · [Engineering case study](docs/portfolio.md) · [Architecture](#architecture) · [Run locally](#local-development)
 
 [![CI](https://github.com/barbalatv/utm-curs-i-orar-2027/actions/workflows/ci.yml/badge.svg)](https://github.com/barbalatv/utm-curs-i-orar-2027/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**[Open the live timetable →](https://utm-curs-i-orar-2027.onrender.com)**
+## Preview
 
-This is an independent project, not an official UTM service.
+Desktop: Anul I, FAF-261, Friday selected; lesson cards and source/update details.
+
+<a href="docs/images/timetable-desktop.webp"><img src="docs/images/timetable-desktop.webp" alt="Desktop Orar FCIM timetable for Anul I, FAF-261, showing Friday lessons and source/update details" width="880"></a>
+
+<details>
+<summary>Mobile preview: day navigation and timetable cards</summary>
+
+<a href="docs/images/timetable-mobile.webp"><img src="docs/images/timetable-mobile.webp" alt="Mobile Orar FCIM timetable at 390 pixels wide with FAF-261 Friday lessons and bottom view navigation" width="260"></a>
+
+</details>
+
+Captured from the public application on **22 October 2026 (Europe/Chisinau)**.
+These are observed timetable views, not a claim that the displayed lessons are current.
+The UI reports data updated on 9 October; the deployment SHA was not established.
+[Capture provenance and full-resolution images](docs/images/README.md).
+
+## Engineering highlights
+
+- **PDF table reconstruction:** positioned text and borders resolve group columns,
+  day blocks, merged cells, and alternating weeks; no OCR or AI model.
+- **Controlled updates:** schema, course-year, geometry, and completeness checks
+  separate a downloaded candidate from an accepted timetable.
+- **Recovery with provenance:** local accepted data, optional PostgreSQL/broker recovery,
+  and hash-verified bundled seeds; recovered data can be older than upstream.
+- **Inspectable verification:** PDF regression fixtures, updater/API tests, database
+  integration, Chromium E2E, and CI. [Read the case study](docs/portfolio.md).
 
 ## What it does
 
@@ -42,6 +69,9 @@ validation fails, it can continue serving the last accepted schedule. Local stor
 optional PostgreSQL recovery, broker accepted state, and verified bundled seeds provide
 layers of recovery across restarts. A recovered timetable may be older than the latest
 FCIM publication; check its source and update status when freshness matters.
+
+The source acquisition migration is documented in the
+[migration verification and deployment runbook](docs/fcim-source-migration-01.md).
 
 ## Local development
 
@@ -139,6 +169,7 @@ See [API behavior](docs/debugging.md#public-api-behavior) for response details a
 
 ## Documentation
 
+- [Engineering case study](docs/portfolio.md): the problem, implementation tradeoffs, verification, and contributions.
 - [Architecture](docs/architecture.md): course model, transport, validation, persistence, and retention.
 - [Debugging and operations](docs/debugging.md): diagnostics, configuration, recovery, and testing.
 - [MD Publisher operations](docs/publisher.md): installation, credentials, scheduling, and troubleshooting.
@@ -150,7 +181,7 @@ Repository source code is licensed under the [MIT License](LICENSE). Timetable P
 data originate from [UTM/FCIM sources](https://fcim.utm.md/orar-sectia-zi-2/);
 these third-party materials are **not licensed under this project's MIT license**.
 Bundled PDF provenance and hashes are recorded in [architecture](docs/architecture.md#bundled-seeds-and-provenance).
-# Indoor map integration
+## Indoor map integration
 
 Optional bounded CORS for the FCIM map is documented in
 [docs/map-02b-integration.md](docs/map-02b-integration.md).
